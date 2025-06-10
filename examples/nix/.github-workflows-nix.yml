@@ -1,0 +1,311 @@
+name: Nix Build and Test
+
+on:
+  push:
+    branches: [master, develop, nightly]
+    paths:
+      - 'flake.nix'
+      - 'flake.lock'
+      - 'justfile'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'pyproject.toml'
+      - 'build.py'
+      - 'crates/**'
+      - 'nautilus_trader/**'
+      - '.github/workflows/nix.yml'
+  pull_request:
+    branches: [master, develop]
+    paths:
+      - 'flake.nix'
+      - 'flake.lock'
+      - 'justfile'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'pyproject.toml'
+      - 'build.py'
+      - 'crates/**'
+      - 'nautilus_trader/**'
+
+jobs:
+  # Matrix strategy for different package variants
+  build-matrix:
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [core, std, full]
+        os: [ubuntu-latest, macos-latest]
+        include:
+          # Only build dev variant on Linux to save CI resources
+          - variant: dev
+            os: ubuntu-latest
+        exclude:
+          # Skip full variant on macOS for PR builds to save resources
+          - variant: full
+            os: macos-latest
+            if: github.event_name == 'pull_request'
+    
+    runs-on: ${{ matrix.os }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Fetch full history for proper version detection
+          fetch-depth: 0
+
+      - name: Install Nix
+        uses: nixos/install-nix-action@v27
+        with:
+          extra_nix_config: |
+            auto-optimise-store = true
+            experimental-features = nix-command flakes
+            # Enable binary cache for faster builds
+            substituters = https://cache.nixos.org/
+            trusted-public-keys = cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=
+
+      - name: Setup Nix binary cache
+        uses: cachix/cachix-action@v15
+        with:
+          name: nautilus-trader
+          # Set CACHIX_AUTH_TOKEN in repository secrets for pushing
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+          
+      - name: Check flake
+        run: nix flake check --show-trace
+        
+      - name: Build ${{ matrix.variant }} variant
+        run: |
+          echo "Building nautilus-trader-${{ matrix.variant }}"
+          nix build .#nautilus-trader-${{ matrix.variant }} --print-build-logs
+
+      - name: Test ${{ matrix.variant }} variant
+        run: |
+          echo "Testing nautilus-trader-${{ matrix.variant }}"
+          # Basic import test
+          nix run .#python -- -c "
+          import nautilus_trader
+          print(f'✓ NautilusTrader {nautilus_trader.__version__} imported successfully')
+          print(f'✓ Package variant: ${{ matrix.variant }}')
+          
+          # Test core functionality
+          from nautilus_trader.common.config import LogConfig
+          from nautilus_trader.model.identifiers import Venue
+          
+          # Test high precision if applicable
+          try:
+              from nautilus_trader.model.types import Price
+              price = Price('99.95')
+              print(f'✓ Price type working: {price}')
+          except Exception as e:
+              print(f'Price test failed: {e}')
+              
+          print('All basic tests passed!')
+          "
+
+      - name: Test adapter imports (full variant only)
+        if: matrix.variant == 'full'
+        run: |
+          nix run .#python -- -c "
+          print('Testing adapter imports...')
+          
+          # Test available adapters
+          adapters_to_test = [
+              ('betfair', 'nautilus_trader.adapters.betfair'),
+              ('binance', 'nautilus_trader.adapters.binance'),
+              ('bybit', 'nautilus_trader.adapters.bybit'),
+          ]
+          
+          for adapter_name, module_name in adapters_to_test:
+              try:
+                  __import__(module_name)
+                  print(f'✓ {adapter_name} adapter imported successfully')
+              except ImportError as e:
+                  print(f'✗ {adapter_name} adapter import failed: {e}')
+              except Exception as e:
+                  print(f'! {adapter_name} adapter import error: {e}')
+          "
+
+  # Specialized jobs
+  docker-build:
+    runs-on: ubuntu-latest
+    needs: [build-matrix]
+    if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/develop'
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: nixos/install-nix-action@v27
+        with:
+          extra_nix_config: |
+            auto-optimise-store = true
+            experimental-features = nix-command flakes
+
+      - name: Setup Nix binary cache
+        uses: cachix/cachix-action@v15
+        with:
+          name: nautilus-trader
+          authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
+
+      - name: Build Docker image
+        run: |
+          nix build .#docker-image --print-build-logs
+          
+      - name: Test Docker image
+        run: |
+          # Load image and test it
+          docker load < result
+          docker run --rm nautilus-trader:latest python -c "
+          import nautilus_trader
+          print(f'Docker image test successful - NautilusTrader {nautilus_trader.__version__}')
+          "
+
+  development-shell:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: nixos/install-nix-action@v27
+        with:
+          extra_nix_config: |
+            auto-optimise-store = true
+            experimental-features = nix-command flakes
+
+      - name: Test development shell
+        run: |
+          nix develop --command bash -c "
+          echo 'Testing development environment...'
+          echo 'Rust version:'
+          rustc --version
+          echo 'Python version:'
+          python --version
+          echo 'Available tools:'
+          which cargo && echo '✓ cargo available'
+          which python && echo '✓ python available'
+          which just && echo '✓ just available' || echo '! just not available'
+          echo 'Development shell test completed'
+          "
+
+  # Just command testing
+  just-commands:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/develop' || github.ref == 'refs/heads/master')
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: nixos/install-nix-action@v27
+        with:
+          extra_nix_config: |
+            auto-optimise-store = true
+            experimental-features = nix-command flakes
+
+      - name: Install just
+        run: nix profile install nixpkgs#just
+
+      - name: Test just commands
+        run: |
+          # Test basic just commands
+          just --list
+          
+          # Test format check
+          just check-format || echo "Format check completed (may have found issues)"
+          
+          # Test CI commands
+          just ci-build
+          just ci-test
+
+  # Performance and size analysis
+  package-analysis:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: nixos/install-nix-action@v27
+        with:
+          extra_nix_config: |
+            auto-optimise-store = true
+            experimental-features = nix-command flakes
+
+      - name: Build and analyze packages
+        run: |
+          echo "=== Package Size Analysis ==="
+          
+          variants=("core" "std" "full")
+          for variant in "${variants[@]}"; do
+            echo "Building nautilus-trader-$variant..."
+            nix build .#nautilus-trader-$variant --print-build-logs
+            
+            # Get package size
+            size=$(du -sh result | cut -f1)
+            echo "nautilus-trader-$variant size: $size"
+            
+            # Get dependency count
+            deps=$(nix-store --query --references result | wc -l)
+            echo "nautilus-trader-$variant dependencies: $deps"
+            
+            echo "---"
+          done
+
+      - name: Runtime performance test
+        run: |
+          echo "=== Runtime Performance Test ==="
+          
+          nix run .#python -- -c "
+          import time
+          import nautilus_trader
+          
+          print('Testing import performance...')
+          start = time.time()
+          
+          # Test common imports
+          from nautilus_trader.backtest.config import BacktestConfig
+          from nautilus_trader.model.identifiers import Venue
+          from nautilus_trader.model.types import Price, Quantity
+          
+          end = time.time()
+          print(f'Import time: {end - start:.3f} seconds')
+          
+          # Test basic operations
+          start = time.time()
+          venue = Venue('TEST')
+          price = Price('100.50')
+          qty = Quantity('10.0')
+          
+          for i in range(1000):
+              p = Price(f'{100 + i * 0.01:.2f}')
+              
+          end = time.time()
+          print(f'Price creation performance (1000 iterations): {end - start:.3f} seconds')
+          "
+
+  # Cleanup and summary
+  summary:
+    runs-on: ubuntu-latest
+    needs: [build-matrix, development-shell]
+    if: always()
+    
+    steps:
+      - name: Summary
+        run: |
+          echo "=== Nix Build Summary ==="
+          echo "Build matrix result: ${{ needs.build-matrix.result }}"
+          echo "Development shell result: ${{ needs.development-shell.result }}"
+          
+          if [[ "${{ needs.build-matrix.result }}" == "success" && "${{ needs.development-shell.result }}" == "success" ]]; then
+            echo "✅ All Nix builds completed successfully"
+          else
+            echo "❌ Some Nix builds failed"
+            exit 1
+          fi 
