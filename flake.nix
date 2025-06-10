@@ -102,11 +102,19 @@
           
           # Link against system Python
           PYTHON_SYS_EXECUTABLE = "${pkgs.python3}/bin/python3";
+          
+          # OpenSSL configuration
+          OPENSSL_DIR = "${pkgs.openssl.dev}";
+          OPENSSL_LIB_DIR = "${pkgs.openssl.out}/lib";
+          OPENSSL_INCLUDE_DIR = "${pkgs.openssl.dev}/include";
+          PKG_CONFIG_PATH = "${pkgs.openssl.dev}/lib/pkgconfig";
         };
 
         # Cargo dependencies (for caching)
         cargoArtifacts = craneLib.buildDepsOnly (commonCargoArgs // {
           pname = "nautilus-trader-deps";
+          # Add Python for PyO3 build scripts and pkg-config for OpenSSL
+          nativeBuildInputs = [ pkgs.python3 pkgs.pkg-config ];
         });
 
         # Build Rust workspace with different precision modes
@@ -122,6 +130,9 @@
             pname = "nautilus-trader-rust";
             
             cargoExtraArgs = "--features '${featuresStr}'";
+            
+            # Add Python for PyO3 and pkg-config for OpenSSL during build
+            nativeBuildInputs = [ pkgs.python3 pkgs.pkg-config ];
             
             # Build profile
             CARGO_PROFILE = "release";
