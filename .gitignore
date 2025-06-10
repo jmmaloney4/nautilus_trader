@@ -43,6 +43,7 @@ logs/
 
 # Rust related
 *target/
+.cargo/
 
 # Python related
 *.pyc

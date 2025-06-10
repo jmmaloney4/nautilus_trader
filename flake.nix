@@ -39,12 +39,14 @@
           clang
           llvm
           
-          # Python and Cython
+          # Python and Cython (headers included in main package)
           python3
           python3Packages.cython
           python3Packages.setuptools
+          python3Packages.setuptools-rust
           python3Packages.poetry-core
           python3Packages.numpy
+          maturin  # Better PyO3 integration
           
           # System libraries
           openssl
@@ -100,14 +102,33 @@
           CARGO_BUILD_INCREMENTAL = "false";
           RUST_BACKTRACE = "1";
           
-          # Link against system Python
+          # PyO3 configuration for Python linking
           PYTHON_SYS_EXECUTABLE = "${pkgs.python3}/bin/python3";
+          PYO3_PYTHON = "${pkgs.python3}/bin/python3";
+          
+          # Override PyO3 auto-detection with explicit paths
+          PYO3_CROSS_PYTHON_VERSION = "${pkgs.python3.pythonVersion}";
+          PYO3_CROSS_LIB_DIR = "${pkgs.python3}/lib";
           
           # OpenSSL configuration
           OPENSSL_DIR = "${pkgs.openssl.dev}";
           OPENSSL_LIB_DIR = "${pkgs.openssl.out}/lib";
           OPENSSL_INCLUDE_DIR = "${pkgs.openssl.dev}/include";
-          PKG_CONFIG_PATH = "${pkgs.openssl.dev}/lib/pkgconfig";
+          
+          # Python library configuration for PyO3
+          PYTHON_INCLUDE_DIR = "${pkgs.python3}/include/python${pkgs.python3.pythonVersion}";
+          PYTHON_LIB_DIR = "${pkgs.python3}/lib";
+          
+          # PKG_CONFIG_PATH for both OpenSSL and Python
+          PKG_CONFIG_PATH = "${pkgs.openssl.dev}/lib/pkgconfig:${pkgs.python3}/lib/pkgconfig";
+          
+          # Direct PyO3 linking configuration
+          # Additional library search paths for runtime
+          LIBRARY_PATH = "${pkgs.python3}/lib:${pkgs.openssl.out}/lib";
+          LD_LIBRARY_PATH = "${pkgs.python3}/lib:${pkgs.openssl.out}/lib";
+          
+          # Direct RUSTFLAGS to link Python library
+          RUSTFLAGS = "-L ${pkgs.python3}/lib -l python${pkgs.python3.pythonVersion}";
         };
 
         # Cargo dependencies (for caching)
@@ -131,8 +152,9 @@
             
             cargoExtraArgs = "--features '${featuresStr}'";
             
-            # Add Python for PyO3 and pkg-config for OpenSSL during build
+            # Add Python for PyO3 linking and pkg-config for OpenSSL during build
             nativeBuildInputs = [ pkgs.python3 pkgs.pkg-config ];
+            buildInputs = [ pkgs.python3 ];
             
             # Build profile
             CARGO_PROFILE = "release";
@@ -141,6 +163,12 @@
             
             # Disable incremental builds for reproducibility
             CARGO_INCREMENTAL = "0";
+            
+            # Additional PyO3 environment variables
+            PYTHONPATH = "${pkgs.python3}/${pkgs.python3.sitePackages}";
+            
+            # Override RUSTFLAGS to include Python linking for this specific build
+            RUSTFLAGS = (commonCargoArgs.RUSTFLAGS or "") + " -L ${pkgs.python3}/lib -l python3.12";
             
             doCheck = false; # Skip tests in this phase
           });
