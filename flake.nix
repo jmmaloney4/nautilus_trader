@@ -33,7 +33,6 @@
         commonBuildInputs = with pkgs; [
           # Build tools
           pkg-config
-          cmake
           
           # C/C++ toolchain
           clang
@@ -185,39 +184,103 @@
           pkgs.python3Packages.buildPythonPackage {
             inherit pname version;
             
-                         src = pkgs.lib.cleanSource ./.;
+            src = pkgs.lib.cleanSource ./.;
             
             format = "pyproject";
             
-            nativeBuildInputs = commonBuildInputs ++ [
+            nativeBuildInputs = [
               pkgs.python3Packages.poetry-core
               pkgs.python3Packages.cython
+              pkgs.python3Packages.setuptools
+              pkgs.python3Packages.numpy
               rustToolchain
+              pkgs.pkg-config
+              pkgs.clang
+              pkgs.llvm
             ];
             
-            buildInputs = [ rustWorkspace ];
+            buildInputs = [ 
+              rustWorkspace 
+              pkgs.python3
+              pkgs.openssl
+              pkgs.zlib
+            ];
             
             propagatedBuildInputs = pythonDeps pkgs.python3Packages ++
-                             pkgs.lib.flatten (map (adapter: adapterDeps.${adapter} pkgs.python3Packages) adapters) ++
-               pkgs.lib.optionals withDev (devDeps pkgs.python3Packages);
+              pkgs.lib.flatten (map (adapter: adapterDeps.${adapter} pkgs.python3Packages) adapters) ++
+              pkgs.lib.optionals withDev (devDeps pkgs.python3Packages);
+            
+            # Set environment variables for the build
+            CARGO_HOME = "$(mktemp -d cargo-home.XXX)";
+            CARGO_TARGET_DIR = "$PWD/target";
+            BUILD_MODE = "release";
+            HIGH_PRECISION = if highPrecision then "true" else "false";
+            # PYO3_ONLY - leave unset for false (empty string is falsy)
+            # DRY_RUN - leave unset for false (empty string is falsy)  
+            # COPY_TO_SOURCE - leave unset for false (empty string is falsy)
+            PARALLEL_BUILD = "true";
+            
+            # PyO3 configuration
+            PYTHON_SYS_EXECUTABLE = "${pkgs.python3}/bin/python3";
+            PYO3_PYTHON = "${pkgs.python3}/bin/python3";
+            PYO3_CROSS_PYTHON_VERSION = "${pkgs.python3.pythonVersion}";
+            PYO3_CROSS_LIB_DIR = "${pkgs.python3}/lib";
+            
+            # Python library configuration
+            PYTHON_INCLUDE_DIR = "${pkgs.python3}/include/python${pkgs.python3.pythonVersion}";
+            PYTHON_LIB_DIR = "${pkgs.python3}/lib";
             
             # Custom build phase
             preBuild = ''
+              # Set up cargo home and target directories
               export CARGO_HOME=$(mktemp -d cargo-home.XXX)
               export CARGO_TARGET_DIR="$PWD/target"
               
-              # Copy Rust artifacts
-              cp -r ${rustWorkspace}/lib/. target/release/
+              # Copy Rust artifacts from pre-built workspace
+              echo "Copying pre-built Rust artifacts..."
+              mkdir -p target/release
+              cp -r ${rustWorkspace}/lib/* target/release/ || true
               
-              # Set build environment
-              export BUILD_MODE=release
-              export HIGH_PRECISION=${if highPrecision then "true" else "false"}
-              export RUST_LIB_PATHS="${rustWorkspace}/lib"
-              export PYO3_ONLY=false
-              export DRY_RUN=false
-              export COPY_TO_SOURCE=false
+              # Make copied files writable since Nix store files are read-only
+              chmod -R u+w target/release/ || true
               
-              # Python build script
+              # Patch build.py to skip Rust compilation since we have pre-built artifacts
+              echo "Patching build.py to skip Rust compilation..."
+              
+              # Set environment variable to skip Rust build
+              export SKIP_RUST_BUILD=1
+              
+              # Create a simple Python patch script
+              python3 -c "
+import re
+import os
+
+# Read the original build.py
+with open('build.py', 'r') as f:
+    content = f.read()
+
+# Add the skip check at the beginning of _build_rust_libs function
+pattern = r'(def _build_rust_libs\(\) -> None:\s*\n)(.*?print\(\"Compiling Rust libraries...\"\))'
+replacement = r'\1    if os.environ.get(\"SKIP_RUST_BUILD\"):\n        print(\"Skipping Rust compilation - using pre-built artifacts\")\n        return\n\n\2'
+
+new_content = re.sub(pattern, replacement, content, flags=re.DOTALL)
+
+# Write the patched version
+with open('build.py', 'w') as f:
+    f.write(new_content)
+
+print('Successfully patched build.py')
+"
+              
+              echo "Patching completed"
+              
+              # Patch pyproject.toml to relax build dependencies  
+              echo "Relaxing build dependency requirements..."
+              sed -i 's/setuptools>=80/setuptools/' pyproject.toml
+              sed -i 's/cython==3.1.1/cython/' pyproject.toml
+              
+              # Run the custom build script
+              echo "Running custom build script..."
               python build.py
             '';
             
@@ -226,7 +289,7 @@
             
             pythonImportsCheck = [ "nautilus_trader" ];
             
-                         meta = with pkgs.lib; {
+            meta = with pkgs.lib; {
               description = "High-performance algorithmic trading platform";
               homepage = "https://nautilustrader.io";
               license = licenses.lgpl3Plus;
