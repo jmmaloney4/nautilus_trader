@@ -261,6 +261,18 @@ impl DatabentoDataLoader {
         exhaust_data_iter_to_pycapsule(py, iter).map_err(to_pyvalue_err)
     }
 
+    #[pyo3(name = "load_cbbo")]
+    #[pyo3(signature = (filepath, instrument_id=None, price_precision=None))]
+    fn py_load_cbbo(
+        &self,
+        filepath: PathBuf,
+        instrument_id: Option<InstrumentId>,
+        price_precision: Option<u8>,
+    ) -> PyResult<Vec<ConsolidatedBBO>> {
+        self.load_cbbo(&filepath, instrument_id, price_precision)
+            .map_err(to_pyvalue_err)
+    }
+
     #[pyo3(name = "load_cbbo_as_pycapsule")]
     #[pyo3(signature = (filepath, instrument_id=None, price_precision=None))]
     fn py_load_cbbo_as_pycapsule(

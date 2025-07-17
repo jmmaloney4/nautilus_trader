@@ -274,8 +274,10 @@ class DatabentoDataLoader:
 
                     return data
                 else:
-                    raise RuntimeError(
-                        "Cannot load `ConsolidatedBBO` as non-Cython objects, set `as_legacy_cython` to True",
+                    return self._pyo3_loader.load_cbbo(
+                        filepath=str(path),
+                        instrument_id=pyo3_instrument_id,
+                        price_precision=price_precision,
                     )
             case DatabentoSchema.MBP_10.value:
                 if as_legacy_cython:
