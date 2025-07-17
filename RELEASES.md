@@ -3,6 +3,7 @@
 Released on TBD (UTC).
 
 ### Enhancements
+- Added complete CBBO schema support to `DatabentoDataLoader` for both legacy Cython and non-Cython objects
 - Added `MarginModel` concept, base models, config, and factory for backtesting (#2794), thanks @faysou
 - Added `query_account` method for `Strategy`
 - Added `QueryAccount` execution message

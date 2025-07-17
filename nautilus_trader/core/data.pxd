@@ -14,5 +14,7 @@
 # -------------------------------------------------------------------------------------------------
 
 
+from nautilus_trader.model.data.consolidated_bbo cimport ConsolidatedBBO
+
 cdef class Data:
     pass

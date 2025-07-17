@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:databento.com)",
+      "Bash(python -m pytest tests/integration_tests/adapters/databento/test_loaders.py::test_loader_cbbo_pyo3 -v)",
+      "Bash(find:*)",
+      "Bash(ls:*)",
+      "Bash(make test-databento:*)",
+      "Bash(grep:*)",
+      "Bash(make pytest:*)",
+      "Bash(cargo check:*)",
+      "Bash(python3:*)",
+      "Bash(rm:*)",
+      "Bash(git add:*)",
+      "Bash(pre-commit run:*)",
+      "Bash(git commit:*)",
+      "Bash(git rebase:*)",
+      "Bash(git checkout:*)",
+      "Bash(cp:*)",
+      "Bash(cargo test:*)",
+      "Bash(rustc:*)",
+      "Bash(cargo --version)",
+      "Bash(python:*)"
+    ],
+    "deny": []
+  }
+}

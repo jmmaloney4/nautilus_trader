@@ -37,3 +37,4 @@ class DatabentoSchema(Enum):
     IMBALANCE = "imbalance"
     STATISTICS = "statistics"
     STATUS = "status"
+    CBBO = "cbbo"

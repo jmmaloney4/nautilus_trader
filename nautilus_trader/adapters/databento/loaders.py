@@ -21,6 +21,7 @@ from nautilus_trader.adapters.databento.enums import DatabentoSchema
 from nautilus_trader.core import nautilus_pyo3
 from nautilus_trader.core.data import Data
 from nautilus_trader.core.nautilus_pyo3 import drop_cvec_pycapsule
+from nautilus_trader.model.data import ConsolidatedBBO
 from nautilus_trader.model.data import InstrumentStatus
 from nautilus_trader.model.data import capsule_to_list
 from nautilus_trader.model.identifiers import InstrumentId
@@ -48,6 +49,7 @@ class DatabentoDataLoader:
      - IMBALANCE -> `DatabentoImbalance`
      - STATISTICS -> `DatabentoStatistics`
      - STATUS -> `InstrumentStatus`
+     - CBBO -> `ConsolidatedBBO`
 
     References
     ----------
@@ -255,6 +257,24 @@ class DatabentoDataLoader:
                     return data
                 else:
                     return self._pyo3_loader.load_bbo_quotes(
+                        filepath=str(path),
+                        instrument_id=pyo3_instrument_id,
+                        price_precision=price_precision,
+                    )
+            case DatabentoSchema.CBBO.value:
+                if as_legacy_cython:
+                    capsule = self._pyo3_loader.load_cbbo_as_pycapsule(
+                        filepath=str(path),
+                        instrument_id=pyo3_instrument_id,
+                        price_precision=price_precision,
+                    )
+                    data = capsule_to_list(capsule)
+                    # Drop encapsulated `CVec` as data is now transferred
+                    drop_cvec_pycapsule(capsule)
+
+                    return data
+                else:
+                    return self._pyo3_loader.load_cbbo(
                         filepath=str(path),
                         instrument_id=pyo3_instrument_id,
                         price_precision=price_precision,

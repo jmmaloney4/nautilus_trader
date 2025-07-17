@@ -17,13 +17,13 @@
 
 use std::{collections::HashMap, path::PathBuf};
 
-use databento::dbn;
+use databento::dbn::{self, CbboMsg};
 use nautilus_core::{
     ffi::cvec::CVec,
     python::{IntoPyObjectNautilusExt, to_pyvalue_err},
 };
 use nautilus_model::{
-    data::{Bar, Data, InstrumentStatus, OrderBookDelta, OrderBookDepth10, QuoteTick, TradeTick},
+    data::{Bar, ConsolidatedBBO, Data, InstrumentStatus, OrderBookDelta, OrderBookDepth10, QuoteTick, TradeTick},
     identifiers::{InstrumentId, Venue},
     python::instruments::instrument_any_to_pyobject,
 };
@@ -256,6 +256,34 @@ impl DatabentoDataLoader {
     ) -> PyResult<PyObject> {
         let iter = self
             .read_records::<dbn::TbboMsg>(&filepath, instrument_id, price_precision, false, None)
+            .map_err(to_pyvalue_err)?;
+
+        exhaust_data_iter_to_pycapsule(py, iter).map_err(to_pyvalue_err)
+    }
+
+    #[pyo3(name = "load_cbbo")]
+    #[pyo3(signature = (filepath, instrument_id=None, price_precision=None))]
+    fn py_load_cbbo(
+        &self,
+        filepath: PathBuf,
+        instrument_id: Option<InstrumentId>,
+        price_precision: Option<u8>,
+    ) -> PyResult<Vec<ConsolidatedBBO>> {
+        self.load_cbbo(&filepath, instrument_id, price_precision)
+            .map_err(to_pyvalue_err)
+    }
+
+    #[pyo3(name = "load_cbbo_as_pycapsule")]
+    #[pyo3(signature = (filepath, instrument_id=None, price_precision=None))]
+    fn py_load_cbbo_as_pycapsule(
+        &self,
+        py: Python,
+        filepath: PathBuf,
+        instrument_id: Option<InstrumentId>,
+        price_precision: Option<u8>,
+    ) -> PyResult<PyObject> {
+        let iter = self
+            .read_records::<dbn::CbboMsg>(&filepath, instrument_id, price_precision, false, None)
             .map_err(to_pyvalue_err)?;
 
         exhaust_data_iter_to_pycapsule(py, iter).map_err(to_pyvalue_err)
