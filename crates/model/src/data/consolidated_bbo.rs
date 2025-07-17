@@ -21,6 +21,14 @@ use serde::{Deserialize, Serialize};
 use crate::identifiers::InstrumentId;
 
 /// Represents a consolidated best bid and offer (CBBO) message.
+///
+/// A CBBO message contains the best bid and offer prices and quantities from across
+/// multiple venues or exchanges, consolidated into a single data structure. This provides
+/// a unified view of the best available prices in the market at a given time.
+///
+/// The structure includes timestamps for tracking when the data was created, when the
+/// market event occurred, when it was ingested by the data source, and when it was
+/// received by the system for comprehensive latency analysis.
 #[repr(C)]
 #[derive(Clone, Copy, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[cfg_attr(
@@ -89,6 +97,24 @@ impl Display for ConsolidatedBBO {
 
 impl ConsolidatedBBO {
     /// Creates a new [`ConsolidatedBBO`] instance.
+    ///
+    /// # Arguments
+    ///
+    /// * `ts_init` - The UNIX nanosecond timestamp when the record was created
+    /// * `ts_event` - The UNIX nanosecond timestamp when the market event occurred
+    /// * `ts_in_delta` - The UNIX nanosecond timestamp when the record was ingested by the data source
+    /// * `ts_recv` - The UNIX nanosecond timestamp when the record was received by the system
+    /// * `instrument_id` - The instrument ID for this CBBO message
+    /// * `bid_price` - The best bid price (must be positive)
+    /// * `ask_price` - The best ask price (must be positive and >= bid_price)
+    /// * `bid_qty` - The best bid quantity (must be positive)
+    /// * `ask_qty` - The best ask quantity (must be positive)
+    /// * `trade_price` - The last trade price (must be positive)
+    /// * `trade_qty` - The last trade quantity (must be positive)
+    ///
+    /// # Panics
+    ///
+    /// Panics if any price or quantity values are negative or zero, or if ask_price < bid_price.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         ts_init: UnixNanos,
@@ -103,6 +129,15 @@ impl ConsolidatedBBO {
         trade_price: f64,
         trade_qty: f64,
     ) -> Self {
+        // Validate price and quantity values
+        assert!(bid_price > 0.0, "bid_price must be positive, was {}", bid_price);
+        assert!(ask_price > 0.0, "ask_price must be positive, was {}", ask_price);
+        assert!(bid_qty > 0.0, "bid_qty must be positive, was {}", bid_qty);
+        assert!(ask_qty > 0.0, "ask_qty must be positive, was {}", ask_qty);
+        assert!(trade_price > 0.0, "trade_price must be positive, was {}", trade_price);
+        assert!(trade_qty > 0.0, "trade_qty must be positive, was {}", trade_qty);
+        assert!(ask_price >= bid_price, "ask_price ({}) must be >= bid_price ({})", ask_price, bid_price);
+
         Self {
             ts_init,
             ts_event,
@@ -122,12 +157,11 @@ impl ConsolidatedBBO {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::identifiers::Venue;
-    use crate::instrument_id;
+    use crate::identifiers::InstrumentId;
 
     #[test]
     fn test_consolidated_bbo_creation() {
-        let instrument_id = instrument_id!("BTCUSD.BINANCE");
+        let instrument_id = InstrumentId::from("BTCUSD.BINANCE");
         let cbbo = ConsolidatedBBO::new(
             UnixNanos::new(1),
             UnixNanos::new(2),
@@ -157,7 +191,7 @@ mod tests {
 
     #[test]
     fn test_consolidated_bbo_display() {
-        let instrument_id = instrument_id!("BTCUSD.BINANCE");
+        let instrument_id = InstrumentId::from("BTCUSD.BINANCE");
         let cbbo = ConsolidatedBBO::new(
             UnixNanos::new(1),
             UnixNanos::new(2),
@@ -174,5 +208,43 @@ mod tests {
 
         let expected = "ConsolidatedBBO(instrument_id=BTCUSD.BINANCE, ts_event=2, bid_price=100, ask_price=101, bid_qty=1, ask_qty=2, trade_price=100.5, trade_qty=1.5)";
         assert_eq!(format!("{}", cbbo), expected);
+    }
+
+    #[test]
+    #[should_panic(expected = "bid_price must be positive")]
+    fn test_consolidated_bbo_invalid_bid_price() {
+        let instrument_id = InstrumentId::from("BTCUSD.BINANCE");
+        ConsolidatedBBO::new(
+            UnixNanos::new(1),
+            UnixNanos::new(2),
+            UnixNanos::new(3),
+            UnixNanos::new(4),
+            instrument_id,
+            -1.0, // Invalid negative bid price
+            101.0,
+            1.0,
+            2.0,
+            100.5,
+            1.5,
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "ask_price (99) must be >= bid_price (100)")]
+    fn test_consolidated_bbo_invalid_spread() {
+        let instrument_id = InstrumentId::from("BTCUSD.BINANCE");
+        ConsolidatedBBO::new(
+            UnixNanos::new(1),
+            UnixNanos::new(2),
+            UnixNanos::new(3),
+            UnixNanos::new(4),
+            instrument_id,
+            100.0,
+            99.0, // Invalid ask price < bid price
+            1.0,
+            2.0,
+            100.5,
+            1.5,
+        );
     }
 }

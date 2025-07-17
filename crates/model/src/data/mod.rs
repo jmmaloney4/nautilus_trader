@@ -141,6 +141,7 @@ impl Data {
             Self::MarkPriceUpdate(mark_price) => mark_price.instrument_id,
             Self::IndexPriceUpdate(index_price) => index_price.instrument_id,
             Self::InstrumentClose(close) => close.instrument_id,
+            Self::ConsolidatedBBO(cbbo) => cbbo.instrument_id,
         }
     }
 
