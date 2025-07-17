@@ -50,6 +50,25 @@ cdef class Data:
         """
         raise NotImplementedError("abstract property must be implemented")
 
+    @property
+    def consolidated_bbo(self):
+        """
+        Return the `ConsolidatedBBO` data.
+
+        Returns
+        -------
+        ConsolidatedBBO
+
+        Raises
+        -------
+        TypeError
+            If the data is not of type `ConsolidatedBBO`.
+
+        """
+        if not isinstance(self, ConsolidatedBBO):
+            raise TypeError("Data is not of type `ConsolidatedBBO`")
+        return self
+
     @classmethod
     def fully_qualified_name(cls) -> str:
         """
