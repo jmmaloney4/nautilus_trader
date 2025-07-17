@@ -20,7 +20,8 @@
       "Bash(cargo test:*)",
       "Bash(rustc:*)",
       "Bash(cargo --version)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(make:*)"
     ],
     "deny": []
   }

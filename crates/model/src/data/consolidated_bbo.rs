@@ -33,7 +33,7 @@ use crate::identifiers::InstrumentId;
 #[derive(Clone, Copy, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[cfg_attr(
     feature = "python",
-    pyo3::pyclass(get_all, set_all, module = "nautilus_trader.model.data")
+    pyo3::pyclass(module = "nautilus_trader.model.data")
 )]
 pub struct ConsolidatedBBO {
     /// The UNIX nanosecond timestamp of when the record was created.

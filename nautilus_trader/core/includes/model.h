@@ -1414,6 +1414,64 @@ typedef struct InstrumentClose_t {
 } InstrumentClose_t;
 
 /**
+ * Represents a consolidated best bid and offer (CBBO) message.
+ *
+ * A CBBO message contains the best bid and offer prices and quantities from across
+ * multiple venues or exchanges, consolidated into a single data structure. This provides
+ * a unified view of the best available prices in the market at a given time.
+ *
+ * The structure includes timestamps for tracking when the data was created, when the
+ * market event occurred, when it was ingested by the data source, and when it was
+ * received by the system for comprehensive latency analysis.
+ */
+typedef struct ConsolidatedBBO {
+    /**
+     * The UNIX nanosecond timestamp of when the record was created.
+     */
+    uint64_t ts_init;
+    /**
+     * The UNIX nanosecond timestamp of the event.
+     */
+    uint64_t ts_event;
+    /**
+     * The UNIX nanosecond timestamp of when the record was ingested by the data source.
+     */
+    uint64_t ts_in_delta;
+    /**
+     * The UNIX nanosecond timestamp of when the record was received by the system.
+     */
+    uint64_t ts_recv;
+    /**
+     * The instrument ID.
+     */
+    struct InstrumentId_t instrument_id;
+    /**
+     * The best bid price.
+     */
+    double bid_price;
+    /**
+     * The best ask price.
+     */
+    double ask_price;
+    /**
+     * The best bid quantity.
+     */
+    double bid_qty;
+    /**
+     * The best ask quantity.
+     */
+    double ask_qty;
+    /**
+     * The last trade price.
+     */
+    double trade_price;
+    /**
+     * The last trade quantity.
+     */
+    double trade_qty;
+} ConsolidatedBBO;
+
+/**
  * A built-in Nautilus data type.
  *
  * Not recommended for storing large amounts of data, as the largest variant is significantly
@@ -1429,6 +1487,7 @@ typedef enum Data_t_Tag {
     MARK_PRICE_UPDATE,
     INDEX_PRICE_UPDATE,
     INSTRUMENT_CLOSE,
+    CONSOLIDATED_BBO,
 } Data_t_Tag;
 
 typedef struct Data_t {
@@ -1460,6 +1519,9 @@ typedef struct Data_t {
         };
         struct {
             struct InstrumentClose_t instrument_close;
+        };
+        struct {
+            struct ConsolidatedBBO consolidated_bbo;
         };
     };
 } Data_t;

@@ -779,6 +779,39 @@ cdef extern from "../includes/model.h":
         # UNIX timestamp (nanoseconds) when the instance was created.
         uint64_t ts_init;
 
+    # Represents a consolidated best bid and offer (CBBO) message.
+    #
+    # A CBBO message contains the best bid and offer prices and quantities from across
+    # multiple venues or exchanges, consolidated into a single data structure. This provides
+    # a unified view of the best available prices in the market at a given time.
+    #
+    # The structure includes timestamps for tracking when the data was created, when the
+    # market event occurred, when it was ingested by the data source, and when it was
+    # received by the system for comprehensive latency analysis.
+    cdef struct ConsolidatedBBO:
+        # The UNIX nanosecond timestamp of when the record was created.
+        uint64_t ts_init;
+        # The UNIX nanosecond timestamp of the event.
+        uint64_t ts_event;
+        # The UNIX nanosecond timestamp of when the record was ingested by the data source.
+        uint64_t ts_in_delta;
+        # The UNIX nanosecond timestamp of when the record was received by the system.
+        uint64_t ts_recv;
+        # The instrument ID.
+        InstrumentId_t instrument_id;
+        # The best bid price.
+        double bid_price;
+        # The best ask price.
+        double ask_price;
+        # The best bid quantity.
+        double bid_qty;
+        # The best ask quantity.
+        double ask_qty;
+        # The last trade price.
+        double trade_price;
+        # The last trade quantity.
+        double trade_qty;
+
     # A built-in Nautilus data type.
     #
     # Not recommended for storing large amounts of data, as the largest variant is significantly
@@ -793,6 +826,7 @@ cdef extern from "../includes/model.h":
         MARK_PRICE_UPDATE,
         INDEX_PRICE_UPDATE,
         INSTRUMENT_CLOSE,
+        CONSOLIDATED_BBO,
 
     cdef struct Data_t:
         Data_t_Tag tag;
@@ -805,6 +839,7 @@ cdef extern from "../includes/model.h":
         MarkPriceUpdate_t mark_price_update;
         IndexPriceUpdate_t index_price_update;
         InstrumentClose_t instrument_close;
+        ConsolidatedBBO consolidated_bbo;
 
     # Represents a valid trader ID.
     cdef struct TraderId_t:
