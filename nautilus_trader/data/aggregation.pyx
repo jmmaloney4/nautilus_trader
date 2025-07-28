@@ -1114,3 +1114,492 @@ cdef class TimeBarAggregator(BarAggregator):
             )
 
             self.next_close_ns = dt_to_unix_nanos(alert_time)
+
+
+cdef class TickImbalanceBarAggregator(BarAggregator):
+    """
+    Provides a means of building tick imbalance bars from ticks.
+
+    When the cumulative tick imbalance reaches the threshold, then a bar is created
+    and sent to the handler. Tick imbalance measures the cumulative signed ticks
+    (up ticks = +1, down ticks = -1).
+
+    Parameters
+    ----------
+    instrument : Instrument
+        The instrument for the aggregator.
+    bar_type : BarType
+        The bar type for the aggregator.
+    handler : Callable[[Bar], None]
+        The bar handler for the aggregator.
+
+    Raises
+    ------
+    ValueError
+        If `instrument.id` != `bar_type.instrument_id`.
+    """
+
+    def __init__(
+        self,
+        Instrument instrument not None,
+        BarType bar_type not None,
+        handler not None: Callable[[Bar], None],
+    ) -> None:
+        super().__init__(
+            instrument=instrument,
+            bar_type=bar_type.standard(),
+            handler=handler,
+        )
+
+        self._tick_imbalance = 0.0
+        self._last_price = None
+
+    cdef void _apply_update(self, Price price, Quantity size, uint64_t ts_event):
+        cdef double tick_sign = self._get_tick_sign(price)
+        self._tick_imbalance += tick_sign
+        self._builder.update(price, size, ts_event)
+
+        if abs(self._tick_imbalance) >= self.bar_type.spec.step:
+            self._build_now_and_send()
+            self._tick_imbalance = 0.0
+
+    cdef void _apply_update_bar(self, Bar bar, Quantity volume, uint64_t ts_init):
+        # For bar updates, we can use the close price to determine tick direction
+        cdef double tick_sign = self._get_tick_sign(bar.close)
+        self._tick_imbalance += tick_sign
+        self._builder.update_bar(bar, volume, ts_init)
+
+        if abs(self._tick_imbalance) >= self.bar_type.spec.step:
+            self._build_now_and_send()
+            self._tick_imbalance = 0.0
+
+    cdef double _get_tick_sign(self, Price price):
+        """Get the tick sign based on price movement."""
+        if self._last_price is None:
+            self._last_price = price
+            return 0.0
+
+        cdef double tick_sign = 0.0
+        if price._mem.raw > self._last_price._mem.raw:
+            tick_sign = 1.0
+        elif price._mem.raw < self._last_price._mem.raw:
+            tick_sign = -1.0
+        # If price == last_price, tick_sign remains 0.0
+
+        self._last_price = price
+        return tick_sign
+
+
+cdef class VolumeImbalanceBarAggregator(BarAggregator):
+    """
+    Provides a means of building volume imbalance bars from ticks.
+
+    When the cumulative volume imbalance reaches the threshold, then a bar is created
+    and sent to the handler. Volume imbalance measures the cumulative signed volume
+    (up tick volume - down tick volume).
+
+    Parameters
+    ----------
+    instrument : Instrument
+        The instrument for the aggregator.
+    bar_type : BarType
+        The bar type for the aggregator.
+    handler : Callable[[Bar], None]
+        The bar handler for the aggregator.
+
+    Raises
+    ------
+    ValueError
+        If `instrument.id` != `bar_type.instrument_id`.
+    """
+
+    def __init__(
+        self,
+        Instrument instrument not None,
+        BarType bar_type not None,
+        handler not None: Callable[[Bar], None],
+    ) -> None:
+        super().__init__(
+            instrument=instrument,
+            bar_type=bar_type.standard(),
+            handler=handler,
+        )
+
+        self._volume_imbalance = Decimal(0)
+        self._last_price = None
+
+    cdef void _apply_update(self, Price price, Quantity size, uint64_t ts_event):
+        cdef double tick_sign = self._get_tick_sign(price)
+        volume_delta = Decimal(size) * Decimal(tick_sign)
+        self._volume_imbalance += volume_delta
+        self._builder.update(price, size, ts_event)
+
+        if abs(self._volume_imbalance) >= self.bar_type.spec.step:
+            self._build_now_and_send()
+            self._volume_imbalance = Decimal(0)
+
+    cdef void _apply_update_bar(self, Bar bar, Quantity volume, uint64_t ts_init):
+        cdef double tick_sign = self._get_tick_sign(bar.close)
+        volume_delta = Decimal(volume) * Decimal(tick_sign)
+        self._volume_imbalance += volume_delta
+        self._builder.update_bar(bar, volume, ts_init)
+
+        if abs(self._volume_imbalance) >= self.bar_type.spec.step:
+            self._build_now_and_send()
+            self._volume_imbalance = Decimal(0)
+
+    cdef double _get_tick_sign(self, Price price):
+        """Get the tick sign based on price movement."""
+        if self._last_price is None:
+            self._last_price = price
+            return 0.0
+
+        cdef double tick_sign = 0.0
+        if price._mem.raw > self._last_price._mem.raw:
+            tick_sign = 1.0
+        elif price._mem.raw < self._last_price._mem.raw:
+            tick_sign = -1.0
+
+        self._last_price = price
+        return tick_sign
+
+
+cdef class ValueImbalanceBarAggregator(BarAggregator):
+    """
+    Provides a means of building value imbalance bars from ticks.
+
+    When the cumulative value imbalance reaches the threshold, then a bar is created
+    and sent to the handler. Value imbalance measures the cumulative signed value
+    (up tick value - down tick value).
+
+    Parameters
+    ----------
+    instrument : Instrument
+        The instrument for the aggregator.
+    bar_type : BarType
+        The bar type for the aggregator.
+    handler : Callable[[Bar], None]
+        The bar handler for the aggregator.
+
+    Raises
+    ------
+    ValueError
+        If `instrument.id` != `bar_type.instrument_id`.
+    """
+
+    def __init__(
+        self,
+        Instrument instrument not None,
+        BarType bar_type not None,
+        handler not None: Callable[[Bar], None],
+    ) -> None:
+        super().__init__(
+            instrument=instrument,
+            bar_type=bar_type.standard(),
+            handler=handler,
+        )
+
+        self._value_imbalance = Decimal(0)
+        self._last_price = None
+
+    cdef void _apply_update(self, Price price, Quantity size, uint64_t ts_event):
+        cdef double tick_sign = self._get_tick_sign(price)
+        value_delta = Decimal(price) * Decimal(size) * Decimal(tick_sign)
+        self._value_imbalance += value_delta
+        self._builder.update(price, size, ts_event)
+
+        if abs(self._value_imbalance) >= self.bar_type.spec.step:
+            self._build_now_and_send()
+            self._value_imbalance = Decimal(0)
+
+    cdef void _apply_update_bar(self, Bar bar, Quantity volume, uint64_t ts_init):
+        cdef double tick_sign = self._get_tick_sign(bar.close)
+        # Use average price for value calculation
+        average_price = (bar.high + bar.low + bar.close) / Decimal(3)
+        value_delta = average_price * Decimal(volume) * Decimal(tick_sign)
+        self._value_imbalance += value_delta
+        self._builder.update_bar(bar, volume, ts_init)
+
+        if abs(self._value_imbalance) >= self.bar_type.spec.step:
+            self._build_now_and_send()
+            self._value_imbalance = Decimal(0)
+
+    cdef double _get_tick_sign(self, Price price):
+        """Get the tick sign based on price movement."""
+        if self._last_price is None:
+            self._last_price = price
+            return 0.0
+
+        cdef double tick_sign = 0.0
+        if price._mem.raw > self._last_price._mem.raw:
+            tick_sign = 1.0
+        elif price._mem.raw < self._last_price._mem.raw:
+            tick_sign = -1.0
+
+        self._last_price = price
+        return tick_sign
+
+
+cdef class TickRunsBarAggregator(BarAggregator):
+    """
+    Provides a means of building tick runs bars from ticks.
+
+    When the cumulative tick runs reach the threshold, then a bar is created
+    and sent to the handler. Tick runs measure the maximum consecutive runs
+    of up or down ticks.
+
+    Parameters
+    ----------
+    instrument : Instrument
+        The instrument for the aggregator.
+    bar_type : BarType
+        The bar type for the aggregator.
+    handler : Callable[[Bar], None]
+        The bar handler for the aggregator.
+
+    Raises
+    ------
+    ValueError
+        If `instrument.id` != `bar_type.instrument_id`.
+    """
+
+    def __init__(
+        self,
+        Instrument instrument not None,
+        BarType bar_type not None,
+        handler not None: Callable[[Bar], None],
+    ) -> None:
+        super().__init__(
+            instrument=instrument,
+            bar_type=bar_type.standard(),
+            handler=handler,
+        )
+
+        self._buy_runs = 0.0
+        self._sell_runs = 0.0
+        self._last_price = None
+
+    cdef void _apply_update(self, Price price, Quantity size, uint64_t ts_event):
+        cdef double tick_sign = self._get_tick_sign(price)
+        self._update_runs(tick_sign)
+        self._builder.update(price, size, ts_event)
+
+        if max(self._buy_runs, self._sell_runs) >= self.bar_type.spec.step:
+            self._build_now_and_send()
+            self._buy_runs = 0.0
+            self._sell_runs = 0.0
+
+    cdef void _apply_update_bar(self, Bar bar, Quantity volume, uint64_t ts_init):
+        cdef double tick_sign = self._get_tick_sign(bar.close)
+        self._update_runs(tick_sign)
+        self._builder.update_bar(bar, volume, ts_init)
+
+        if max(self._buy_runs, self._sell_runs) >= self.bar_type.spec.step:
+            self._build_now_and_send()
+            self._buy_runs = 0.0
+            self._sell_runs = 0.0
+
+    cdef void _update_runs(self, double tick_sign):
+        """Update the runs based on tick sign."""
+        if tick_sign > 0:
+            self._buy_runs += 1.0
+            self._sell_runs = 0.0  # Reset opposite direction
+        elif tick_sign < 0:
+            self._sell_runs += 1.0
+            self._buy_runs = 0.0  # Reset opposite direction
+
+    cdef double _get_tick_sign(self, Price price):
+        """Get the tick sign based on price movement."""
+        if self._last_price is None:
+            self._last_price = price
+            return 0.0
+
+        cdef double tick_sign = 0.0
+        if price._mem.raw > self._last_price._mem.raw:
+            tick_sign = 1.0
+        elif price._mem.raw < self._last_price._mem.raw:
+            tick_sign = -1.0
+
+        self._last_price = price
+        return tick_sign
+
+
+cdef class VolumeRunsBarAggregator(BarAggregator):
+    """
+    Provides a means of building volume runs bars from ticks.
+
+    When the cumulative volume runs reach the threshold, then a bar is created
+    and sent to the handler. Volume runs measure the maximum consecutive runs
+    of up or down tick volumes.
+
+    Parameters
+    ----------
+    instrument : Instrument
+        The instrument for the aggregator.
+    bar_type : BarType
+        The bar type for the aggregator.
+    handler : Callable[[Bar], None]
+        The bar handler for the aggregator.
+
+    Raises
+    ------
+    ValueError
+        If `instrument.id` != `bar_type.instrument_id`.
+    """
+
+    def __init__(
+        self,
+        Instrument instrument not None,
+        BarType bar_type not None,
+        handler not None: Callable[[Bar], None],
+    ) -> None:
+        super().__init__(
+            instrument=instrument,
+            bar_type=bar_type.standard(),
+            handler=handler,
+        )
+
+        self._buy_volume_runs = Decimal(0)
+        self._sell_volume_runs = Decimal(0)
+        self._last_price = None
+
+    cdef void _apply_update(self, Price price, Quantity size, uint64_t ts_event):
+        cdef double tick_sign = self._get_tick_sign(price)
+        self._update_volume_runs(tick_sign, size)
+        self._builder.update(price, size, ts_event)
+
+        if max(self._buy_volume_runs, self._sell_volume_runs) >= self.bar_type.spec.step:
+            self._build_now_and_send()
+            self._buy_volume_runs = Decimal(0)
+            self._sell_volume_runs = Decimal(0)
+
+    cdef void _apply_update_bar(self, Bar bar, Quantity volume, uint64_t ts_init):
+        cdef double tick_sign = self._get_tick_sign(bar.close)
+        self._update_volume_runs(tick_sign, volume)
+        self._builder.update_bar(bar, volume, ts_init)
+
+        if max(self._buy_volume_runs, self._sell_volume_runs) >= self.bar_type.spec.step:
+            self._build_now_and_send()
+            self._buy_volume_runs = Decimal(0)
+            self._sell_volume_runs = Decimal(0)
+
+    cdef void _update_volume_runs(self, double tick_sign, Quantity volume):
+        """Update the volume runs based on tick sign."""
+        if tick_sign > 0:
+            self._buy_volume_runs += Decimal(volume)
+            self._sell_volume_runs = Decimal(0)  # Reset opposite direction
+        elif tick_sign < 0:
+            self._sell_volume_runs += Decimal(volume)
+            self._buy_volume_runs = Decimal(0)  # Reset opposite direction
+
+    cdef double _get_tick_sign(self, Price price):
+        """Get the tick sign based on price movement."""
+        if self._last_price is None:
+            self._last_price = price
+            return 0.0
+
+        cdef double tick_sign = 0.0
+        if price._mem.raw > self._last_price._mem.raw:
+            tick_sign = 1.0
+        elif price._mem.raw < self._last_price._mem.raw:
+            tick_sign = -1.0
+
+        self._last_price = price
+        return tick_sign
+
+
+cdef class ValueRunsBarAggregator(BarAggregator):
+    """
+    Provides a means of building value runs bars from ticks.
+
+    When the cumulative value runs reach the threshold, then a bar is created
+    and sent to the handler. Value runs measure the maximum consecutive runs
+    of up or down tick values.
+
+    Parameters
+    ----------
+    instrument : Instrument
+        The instrument for the aggregator.
+    bar_type : BarType
+        The bar type for the aggregator.
+    handler : Callable[[Bar], None]
+        The bar handler for the aggregator.
+
+    Raises
+    ------
+    ValueError
+        If `instrument.id` != `bar_type.instrument_id`.
+    """
+
+    def __init__(
+        self,
+        Instrument instrument not None,
+        BarType bar_type not None,
+        handler not None: Callable[[Bar], None],
+    ) -> None:
+        super().__init__(
+            instrument=instrument,
+            bar_type=bar_type.standard(),
+            handler=handler,
+        )
+
+        self._buy_value_runs = Decimal(0)
+        self._sell_value_runs = Decimal(0)
+        self._last_price = None
+
+    cdef void _apply_update(self, Price price, Quantity size, uint64_t ts_event):
+        cdef double tick_sign = self._get_tick_sign(price)
+        self._update_value_runs(tick_sign, price, size)
+        self._builder.update(price, size, ts_event)
+
+        if max(self._buy_value_runs, self._sell_value_runs) >= self.bar_type.spec.step:
+            self._build_now_and_send()
+            self._buy_value_runs = Decimal(0)
+            self._sell_value_runs = Decimal(0)
+
+    cdef void _apply_update_bar(self, Bar bar, Quantity volume, uint64_t ts_init):
+        cdef double tick_sign = self._get_tick_sign(bar.close)
+        # Use average price for value calculation
+        average_price = (bar.high + bar.low + bar.close) / Decimal(3)
+        self._update_value_runs_with_price(tick_sign, average_price, volume)
+        self._builder.update_bar(bar, volume, ts_init)
+
+        if max(self._buy_value_runs, self._sell_value_runs) >= self.bar_type.spec.step:
+            self._build_now_and_send()
+            self._buy_value_runs = Decimal(0)
+            self._sell_value_runs = Decimal(0)
+
+    cdef void _update_value_runs(self, double tick_sign, Price price, Quantity size):
+        """Update the value runs based on tick sign."""
+        value = Decimal(price) * Decimal(size)
+        if tick_sign > 0:
+            self._buy_value_runs += value
+            self._sell_value_runs = Decimal(0)  # Reset opposite direction
+        elif tick_sign < 0:
+            self._sell_value_runs += value
+            self._buy_value_runs = Decimal(0)  # Reset opposite direction
+
+    cdef void _update_value_runs_with_price(self, double tick_sign, object price, Quantity volume):
+        """Update the value runs with explicit price."""
+        value = price * Decimal(volume)
+        if tick_sign > 0:
+            self._buy_value_runs += value
+            self._sell_value_runs = Decimal(0)  # Reset opposite direction
+        elif tick_sign < 0:
+            self._sell_value_runs += value
+            self._buy_value_runs = Decimal(0)  # Reset opposite direction
+
+    cdef double _get_tick_sign(self, Price price):
+        """Get the tick sign based on price movement."""
+        if self._last_price is None:
+            self._last_price = price
+            return 0.0
+
+        cdef double tick_sign = 0.0
+        if price._mem.raw > self._last_price._mem.raw:
+            tick_sign = 1.0
+        elif price._mem.raw < self._last_price._mem.raw:
+            tick_sign = -1.0
+
+        self._last_price = price
+        return tick_sign

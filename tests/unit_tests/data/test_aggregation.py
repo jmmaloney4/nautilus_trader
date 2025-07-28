@@ -25,9 +25,15 @@ from nautilus_trader.common.component import TestClock
 from nautilus_trader.core.datetime import dt_to_unix_nanos
 from nautilus_trader.data.aggregation import BarBuilder
 from nautilus_trader.data.aggregation import TickBarAggregator
+from nautilus_trader.data.aggregation import TickImbalanceBarAggregator
+from nautilus_trader.data.aggregation import TickRunsBarAggregator
 from nautilus_trader.data.aggregation import TimeBarAggregator
 from nautilus_trader.data.aggregation import ValueBarAggregator
+from nautilus_trader.data.aggregation import ValueImbalanceBarAggregator
+from nautilus_trader.data.aggregation import ValueRunsBarAggregator
 from nautilus_trader.data.aggregation import VolumeBarAggregator
+from nautilus_trader.data.aggregation import VolumeImbalanceBarAggregator
+from nautilus_trader.data.aggregation import VolumeRunsBarAggregator
 from nautilus_trader.model.data import Bar
 from nautilus_trader.model.data import BarSpecification
 from nautilus_trader.model.data import BarType
@@ -2503,3 +2509,172 @@ class TestTimeBarAggregator:
         assert len(handler) == 2
         assert handler[0].ts_event == ts_event1
         assert handler[1].ts_event == ts_event2
+
+
+class TestTickImbalanceBarAggregator:
+    def test_instantiate_tick_imbalance_aggregator(self):
+        # Arrange
+        handler = []
+        instrument = AUDUSD_SIM
+        bar_spec = BarSpecification(10, BarAggregation.TICK_IMBALANCE, PriceType.LAST)
+        bar_type = BarType(instrument.id, bar_spec)
+        
+        # Act
+        aggregator = TickImbalanceBarAggregator(
+            instrument,
+            bar_type,
+            handler.append,
+        )
+
+        # Assert
+        assert aggregator is not None
+        assert aggregator._tick_imbalance == 0.0
+        assert aggregator._last_price is None
+
+    def test_handle_trade_tick_updates_imbalance(self):
+        # Arrange
+        handler = []
+        instrument = AUDUSD_SIM
+        bar_spec = BarSpecification(5, BarAggregation.TICK_IMBALANCE, PriceType.LAST)
+        bar_type = BarType(instrument.id, bar_spec)
+        aggregator = TickImbalanceBarAggregator(
+            instrument,
+            bar_type,
+            handler.append,
+        )
+
+        tick1 = TradeTick(
+            instrument_id=AUDUSD_SIM.id,
+            price=Price.from_str("1.00001"),
+            size=Quantity.from_int(1),
+            aggressor_side=AggressorSide.BUYER,
+            trade_id=TradeId("123456"),
+            ts_event=0,
+            ts_init=0,
+        )
+
+        tick2 = TradeTick(
+            instrument_id=AUDUSD_SIM.id,
+            price=Price.from_str("1.00002"),  # Up tick
+            size=Quantity.from_int(1),
+            aggressor_side=AggressorSide.BUYER,
+            trade_id=TradeId("123457"),
+            ts_event=1,
+            ts_init=1,
+        )
+
+        # Act
+        aggregator.handle_trade_tick(tick1)
+        aggregator.handle_trade_tick(tick2)
+
+        # Assert
+        assert aggregator._tick_imbalance == 1.0  # One up tick
+        assert len(handler) == 0  # Below threshold
+
+
+class TestVolumeImbalanceBarAggregator:
+    def test_instantiate_volume_imbalance_aggregator(self):
+        # Arrange
+        handler = []
+        instrument = AUDUSD_SIM
+        bar_spec = BarSpecification(1000, BarAggregation.VOLUME_IMBALANCE, PriceType.LAST)
+        bar_type = BarType(instrument.id, bar_spec)
+        
+        # Act
+        aggregator = VolumeImbalanceBarAggregator(
+            instrument,
+            bar_type,
+            handler.append,
+        )
+
+        # Assert
+        assert aggregator is not None
+        assert aggregator._volume_imbalance == 0
+        assert aggregator._last_price is None
+
+
+class TestValueImbalanceBarAggregator:
+    def test_instantiate_value_imbalance_aggregator(self):
+        # Arrange
+        handler = []
+        instrument = AUDUSD_SIM
+        bar_spec = BarSpecification(10000, BarAggregation.VALUE_IMBALANCE, PriceType.LAST)
+        bar_type = BarType(instrument.id, bar_spec)
+        
+        # Act
+        aggregator = ValueImbalanceBarAggregator(
+            instrument,
+            bar_type,
+            handler.append,
+        )
+
+        # Assert
+        assert aggregator is not None
+        assert aggregator._value_imbalance == 0
+        assert aggregator._last_price is None
+
+
+class TestTickRunsBarAggregator:
+    def test_instantiate_tick_runs_aggregator(self):
+        # Arrange
+        handler = []
+        instrument = AUDUSD_SIM
+        bar_spec = BarSpecification(10, BarAggregation.TICK_RUNS, PriceType.LAST)
+        bar_type = BarType(instrument.id, bar_spec)
+        
+        # Act
+        aggregator = TickRunsBarAggregator(
+            instrument,
+            bar_type,
+            handler.append,
+        )
+
+        # Assert
+        assert aggregator is not None
+        assert aggregator._buy_runs == 0.0
+        assert aggregator._sell_runs == 0.0
+        assert aggregator._last_price is None
+
+
+class TestVolumeRunsBarAggregator:
+    def test_instantiate_volume_runs_aggregator(self):
+        # Arrange
+        handler = []
+        instrument = AUDUSD_SIM
+        bar_spec = BarSpecification(1000, BarAggregation.VOLUME_RUNS, PriceType.LAST)
+        bar_type = BarType(instrument.id, bar_spec)
+        
+        # Act
+        aggregator = VolumeRunsBarAggregator(
+            instrument,
+            bar_type,
+            handler.append,
+        )
+
+        # Assert
+        assert aggregator is not None
+        assert aggregator._buy_volume_runs == 0
+        assert aggregator._sell_volume_runs == 0
+        assert aggregator._last_price is None
+
+
+class TestValueRunsBarAggregator:
+    def test_instantiate_value_runs_aggregator(self):
+        # Arrange
+        handler = []
+        instrument = AUDUSD_SIM
+        bar_spec = BarSpecification(10000, BarAggregation.VALUE_RUNS, PriceType.LAST)
+        bar_type = BarType(instrument.id, bar_spec)
+        
+        # Act
+        aggregator = ValueRunsBarAggregator(
+            instrument,
+            bar_type,
+            handler.append,
+        )
+
+        # Assert
+        assert aggregator is not None
+        assert aggregator._buy_value_runs == 0
+        assert aggregator._sell_value_runs == 0
+        assert aggregator._last_price is None
