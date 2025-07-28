@@ -124,3 +124,52 @@ cdef class TimeBarAggregator(BarAggregator):
     cdef void _batch_pre_update(self, uint64_t time_ns)
     cdef void _batch_post_update(self, uint64_t time_ns)
     cpdef void _build_bar(self, TimeEvent event)
+
+
+cdef class TickImbalanceBarAggregator(BarAggregator):
+    cdef double _tick_imbalance
+    cdef Price _last_price
+
+    cdef double _get_tick_sign(self, Price price)
+
+
+cdef class VolumeImbalanceBarAggregator(BarAggregator):
+    cdef object _volume_imbalance
+    cdef Price _last_price
+
+    cdef double _get_tick_sign(self, Price price)
+
+
+cdef class ValueImbalanceBarAggregator(BarAggregator):
+    cdef object _value_imbalance
+    cdef Price _last_price
+
+    cdef double _get_tick_sign(self, Price price)
+
+
+cdef class TickRunsBarAggregator(BarAggregator):
+    cdef double _buy_runs
+    cdef double _sell_runs
+    cdef Price _last_price
+
+    cdef void _update_runs(self, double tick_sign)
+    cdef double _get_tick_sign(self, Price price)
+
+
+cdef class VolumeRunsBarAggregator(BarAggregator):
+    cdef object _buy_volume_runs
+    cdef object _sell_volume_runs
+    cdef Price _last_price
+
+    cdef void _update_volume_runs(self, double tick_sign, Quantity volume)
+    cdef double _get_tick_sign(self, Price price)
+
+
+cdef class ValueRunsBarAggregator(BarAggregator):
+    cdef object _buy_value_runs
+    cdef object _sell_value_runs
+    cdef Price _last_price
+
+    cdef void _update_value_runs(self, double tick_sign, Price price, Quantity size)
+    cdef void _update_value_runs_with_price(self, double tick_sign, object price, Quantity volume)
+    cdef double _get_tick_sign(self, Price price)
