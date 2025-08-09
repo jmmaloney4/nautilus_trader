@@ -34,6 +34,8 @@
           pkgs.pkg-config
           pkgs.openssl
           pkgs.git
+          pkgs.openblas
+          pkgs.gfortran
         ];
 
         # Environment tweaks to align with build.py expectations
