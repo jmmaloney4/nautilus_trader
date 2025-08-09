@@ -13,6 +13,7 @@ from nautilus_trader.model.objects import Currency, Price, Quantity
 from .config import TastytradeInstrumentProviderConfig
 from .http.client import TastytradeHttpClient
 from .common import TT_VENUE_DEFAULT_EQUITY
+from .parsing.instruments import parse_equity_payload
 
 
 class TastytradeInstrumentProvider(InstrumentProvider):
@@ -44,41 +45,13 @@ class TastytradeInstrumentProvider(InstrumentProvider):
         # For now, support equities by symbol only.
         symbol = instrument_id.symbol.value
         data = await self._client._request("GET", f"/instruments/equities/{symbol}")
-        instrument = self._parse_equity(data["data"])  # shape per docs
+        instrument = parse_equity_payload(data["data"])  # shape per docs
+        # stamp timestamps
+        # Instruments created in parser use placeholder timestamps; replace here
+        ts = self._clock.timestamp_ns()
+        object.__setattr__(instrument, "ts_event", ts)
+        object.__setattr__(instrument, "ts_init", ts)
         self.add(instrument)
 
-    def _parse_equity(self, payload: dict[str, Any]) -> Equity:
-        # Derive venue and precision from payload
-        venue_code = payload.get("listed-market") or TT_VENUE_DEFAULT_EQUITY
-        venue = Venue(venue_code)
-        instrument_id = InstrumentId(Symbol(payload["symbol"]), venue)
-        currency = Currency.from_str("USD")  # Tastytrade equities are USD; adjust if payload supplies
-
-        # Tick sizes may be a list; choose smallest for increment/precision
-        tick_sizes = payload.get("tick-sizes") or []
-        if tick_sizes:
-            min_tick = min(float(t.get("value", 0.01)) for t in tick_sizes if t.get("value"))
-        else:
-            min_tick = 0.01
-        price = Price(min_tick, precision=len(f"{min_tick:.10f}".split(".")[1].rstrip("0")))
-
-        # Fractional eligibility can influence size precision
-        is_fractional = bool(payload.get("is-fractional-quantity-eligible", True))
-        size_precision = 6 if is_fractional else 0
-
-        now = self._clock.timestamp_ns()
-        equity = Equity(
-            instrument_id=instrument_id,
-            raw_symbol=Symbol(payload["symbol"]),
-            currency=currency,
-            price_precision=price.precision,
-            price_increment=price,
-            lot_size=Quantity.from_int(1),
-            ts_event=now,
-            ts_init=now,
-            info=payload,
-        )
-
-        return equity
 
 
