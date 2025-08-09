@@ -59,3 +59,35 @@ async def list_equity_options(
     return payload.get("data", {}).get("items", [])
 
 
+# Futures options
+
+async def get_futures_option(client: TastytradeHttpClient, symbol: str) -> dict[str, Any]:
+    """Fetch a single futures option by symbol (e.g., "./ESU3 E1DQ3 230803P3860")."""
+    payload = await client._request("GET", f"/instruments/future-options/{symbol}")
+    return payload["data"]
+
+
+async def list_futures_options(
+    client: TastytradeHttpClient,
+    symbols: list[str] | None = None,
+    option_root_symbol: str | None = None,
+    expiration_date: str | None = None,
+    option_type: str | None = None,
+    strike_price: str | None = None,
+) -> list[dict[str, Any]]:
+    params: dict[str, Any] = {}
+    if symbols:
+        for idx, s in enumerate(symbols):
+            params[f"symbol[{idx}]"] = s
+    if option_root_symbol is not None:
+        params["option-root-symbol"] = option_root_symbol
+    if expiration_date is not None:
+        params["expiration-date"] = expiration_date
+    if option_type is not None:
+        params["option-type"] = option_type
+    if strike_price is not None:
+        params["strike-price"] = strike_price
+    payload = await client._request("GET", "/instruments/future-options", params=params)
+    return payload.get("data", {}).get("items", [])
+
+

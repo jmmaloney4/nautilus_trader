@@ -87,3 +87,53 @@ def parse_equity_option_payload(payload: dict[str, Any]) -> OptionContract:
     )
 
 
+def parse_futures_option_payload(payload: dict[str, Any]) -> OptionContract:
+    """Parse a Tastytrade futures option payload to Nautilus OptionContract.
+
+    Fields include:
+    - symbol: "./ESU3 E1DQ3 230803P3860"
+    - underlying-symbol: "/ESU3"
+    - product-code, exchange, streamer-symbol, etc.
+    - strike-price, expiration-date, option-type
+    - multiplier (often 1.0) and tick-sizes
+    """
+    sym = payload["symbol"]
+    underlying = payload.get("underlying-symbol") or ""
+    # Venue from streamer-exchange-code if available, else fallback to exchange
+    venue_code = payload.get("streamer-exchange-code") or payload.get("exchange") or "XCME"
+    instrument_id = InstrumentId(Symbol(sym.replace(" ", "")), Venue(venue_code))
+
+    currency = Currency.from_str("USD")
+    min_tick = select_min_tick(payload.get("tick-sizes") or [])
+    precision = tick_to_precision(min_tick)
+    price_increment = Price(min_tick, precision)
+
+    kind = OptionKind.CALL if payload.get("option-type") == "C" else OptionKind.PUT
+    try:
+        mult = float(payload.get("multiplier", 1.0))
+    except Exception:
+        mult = 1.0
+    multiplier = Quantity(mult, precision=0)
+
+    strike_val = float(payload.get("strike-price", 0.0))
+    ts = 0
+    return OptionContract(
+        instrument_id=instrument_id,
+        raw_symbol=Symbol(sym),
+        asset_class=None,
+        currency=currency,
+        price_precision=precision,
+        price_increment=price_increment,
+        multiplier=multiplier,
+        lot_size=multiplier,
+        underlying=underlying,
+        strike_price=Price(strike_val, precision),
+        activation_ns=ts,
+        expiration_ns=ts,
+        option_kind=kind,
+        ts_event=ts,
+        ts_init=ts,
+        info=payload,
+    )
+
+
