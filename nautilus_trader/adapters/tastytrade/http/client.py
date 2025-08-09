@@ -55,7 +55,7 @@ class TastytradeHttpClient:
 
     async def _login(self) -> None:
         assert self._session is not None
-        # Placeholder login route. Adjust to real Tastytrade auth when wiring credentials.
+        # Tastytrade sandbox uses session login at /sessions
         url = f"{self._base_url}/sessions"
         async with self._session.post(
             url,
@@ -91,6 +91,10 @@ class TastytradeHttpClient:
             if "application/json" in resp.headers.get("Content-Type", ""):
                 return await resp.json()
             return await resp.text()
+
+    # Public wrapper for testing/mocking
+    async def request(self, method: str, path: str, **kwargs: Any) -> Any:
+        return await self._request(method, path, **kwargs)
 
     async def list_customer_accounts(self) -> Any:
         # Auth scope: customer is always 'me'
