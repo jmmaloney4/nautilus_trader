@@ -968,6 +968,52 @@ def test_load_statistics() -> None:
     assert isinstance(data[3], nautilus_pyo3.DatabentoStatistics)
 
 
+def test_loader_cbbo() -> None:
+    # Arrange
+    loader = DatabentoDataLoader()
+    path = DATABENTO_TEST_DATA_DIR / "cbbo.dbn.zst"
+
+    # Act
+    data = loader.from_dbn_file(path, as_legacy_cython=True)
+
+    # Assert
+    assert len(data) > 0
+    assert isinstance(data[0], ConsolidatedBBO)
+    cbbo = data[0]
+    assert cbbo.instrument_id == InstrumentId.from_str("ESM4.GLBX")
+    assert cbbo.bid_price == Price.from_str("5199.50")
+    assert cbbo.ask_price == Price.from_str("5199.75")
+    assert cbbo.bid_qty == Quantity.from_int(26)
+    assert cbbo.ask_qty == Quantity.from_int(23)
+    assert cbbo.trade_price == Price.from_str("5199.60")
+    assert cbbo.trade_qty == Quantity.from_int(10)
+    assert cbbo.ts_event == 1715248801000000000
+    assert cbbo.ts_init == 1715248801000000000
+
+
+def test_loader_cbbo_pyo3() -> None:
+    # Arrange
+    loader = DatabentoDataLoader()
+    path = DATABENTO_TEST_DATA_DIR / "cbbo.dbn.zst"
+
+    # Act
+    data = loader.from_dbn_file(path, as_legacy_cython=False)
+
+    # Assert
+    assert len(data) > 0
+    assert isinstance(data[0], nautilus_pyo3.ConsolidatedBBO)
+    cbbo = data[0]
+    assert cbbo.instrument_id == nautilus_pyo3.InstrumentId.from_str("ESM4.GLBX")
+    assert cbbo.bid_price == nautilus_pyo3.Price.from_str("5199.50")
+    assert cbbo.ask_price == nautilus_pyo3.Price.from_str("5199.75")
+    assert cbbo.bid_qty == nautilus_pyo3.Quantity.from_int(26)
+    assert cbbo.ask_qty == nautilus_pyo3.Quantity.from_int(23)
+    assert cbbo.trade_price == nautilus_pyo3.Price.from_str("5199.60")
+    assert cbbo.trade_qty == nautilus_pyo3.Quantity.from_int(10)
+    assert cbbo.ts_event == 1715248801000000000
+    assert cbbo.ts_init == 1715248801000000000
+
+
 @pytest.mark.skip("development_only")
 def test_load_instruments_pyo3_large() -> None:
     # Arrange

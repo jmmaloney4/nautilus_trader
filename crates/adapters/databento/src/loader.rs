@@ -20,7 +20,7 @@ use std::{
 
 use ahash::AHashMap;
 use anyhow::Context;
-use databento::dbn::{self, InstrumentDefMsg};
+use databento::dbn::{self, CbboMsg, InstrumentDefMsg};
 use dbn::{
     Publisher,
     decode::{DbnMetadata, DecodeStream, dbn::Decoder},
@@ -446,6 +446,30 @@ impl DatabentoDataLoader {
                         None
                     }
                 }
+                Err(e) => Some(Err(e)),
+            })
+            .collect()
+    }
+
+    /// # Errors
+    ///
+    /// Returns an error if loading consolidated BBO fails.
+    pub fn load_cbbo(
+        &self,
+        filepath: &Path,
+        instrument_id: Option<InstrumentId>,
+        price_precision: Option<u8>,
+    ) -> anyhow::Result<Vec<ConsolidatedBBO>> {
+        self.read_records::<dbn::CbboMsg>(filepath, instrument_id, price_precision, false, None)?
+            .filter_map(|result| match result {
+                Ok((Some(item1), _)) => {
+                    if let Data::ConsolidatedBBO(cbbo) = item1 {
+                        Some(Ok(cbbo))
+                    } else {
+                        None
+                    }
+                }
+                Ok((None, _)) => None,
                 Err(e) => Some(Err(e)),
             })
             .collect()

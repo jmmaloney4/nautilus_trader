@@ -27,6 +27,7 @@ pub mod prices;
 pub mod quote;
 pub mod status;
 pub mod trade;
+pub mod consolidated_bbo;
 
 #[cfg(any(test, feature = "stubs"))]
 pub mod stubs;
@@ -58,6 +59,7 @@ pub use prices::{IndexPriceUpdate, MarkPriceUpdate};
 pub use quote::QuoteTick;
 pub use status::InstrumentStatus;
 pub use trade::TradeTick;
+pub use consolidated_bbo::ConsolidatedBBO;
 
 use crate::identifiers::{InstrumentId, Venue};
 
@@ -77,6 +79,7 @@ pub enum Data {
     MarkPriceUpdate(MarkPriceUpdate), // TODO: Rename to MarkPrice once Cython gone
     IndexPriceUpdate(IndexPriceUpdate), // TODO: Rename to IndexPrice once Cython gone
     InstrumentClose(InstrumentClose),
+    ConsolidatedBBO(ConsolidatedBBO),
 }
 
 macro_rules! impl_try_from_data {
@@ -113,6 +116,7 @@ impl_try_from_data!(Bar, Bar);
 impl_try_from_data!(MarkPriceUpdate, MarkPriceUpdate);
 impl_try_from_data!(IndexPriceUpdate, IndexPriceUpdate);
 impl_try_from_data!(InstrumentClose, InstrumentClose);
+impl_try_from_data!(ConsolidatedBBO, ConsolidatedBBO);
 
 /// Converts a vector of `Data` items to a specific variant type.
 ///
@@ -168,6 +172,7 @@ impl HasTsInit for Data {
             Self::MarkPriceUpdate(p) => p.ts_init,
             Self::IndexPriceUpdate(p) => p.ts_init,
             Self::InstrumentClose(c) => c.ts_init,
+            Self::ConsolidatedBBO(c) => c.ts_init,
         }
     }
 }
@@ -231,6 +236,12 @@ impl From<IndexPriceUpdate> for Data {
 impl From<InstrumentClose> for Data {
     fn from(value: InstrumentClose) -> Self {
         Self::InstrumentClose(value)
+    }
+}
+
+impl From<ConsolidatedBBO> for Data {
+    fn from(value: ConsolidatedBBO) -> Self {
+        Self::ConsolidatedBBO(value)
     }
 }
 
