@@ -54,10 +54,37 @@ data.{ token, dxlink-url, websocket-url, level, issued-at, expires-at }
 Modeled by `http::models::QuoteTokenData`. Feeds the DXLink market-data stream.
 `dxlink-url` is the endpoint to open; `token` (~24h TTL) authenticates the feed.
 
-## GET /accounts/{account_number}/positions
-`data.items[]` — **shape pending**: empty in the captured run (no open
-positions). Needs a position in the sandbox to capture leg/quantity/price fields.
+## POST /accounts/{account_number}/orders/dry-run
+Validates an order and returns its impact **without** placing it. Validated
+against sandbox (1-share AAPL limit). This is the canonical source for the order
+and fee shapes (Phase 2 mapping).
+```
+data.order.{
+  account-number, status, order-type, time-in-force, price, price-effect,
+  size, cancellable, editable, edited, global-request-id,
+  underlying-symbol, underlying-instrument-type, updated-at (number, epoch ms)
+}
+data.order.legs[].{
+  action, instrument-type, symbol, quantity (number),
+  remaining-quantity (number), fills[]
+}
+data.buying-power-effect.{
+  change-in-buying-power(+ -effect), current-buying-power, new-buying-power,
+  change-in-margin-requirement, isolated-order-margin-requirement,
+  impact, is-spread
+}
+data.fee-calculation.{
+  commission, regulatory-fees, clearing-fees, total-fees   (each with -effect),
+  *-breakdown[].{ name, value, effect },
+  rebates, proprietary-index-option-fees, per-quantity
+}
+data.warnings[].{ code, message }
+data.notes[]
+```
+A **placed live order** (`GET /accounts/{n}/orders/live`, `items[]`) mirrors
+`data.order` above, with `legs[].fills[]` populated as the order executes.
 
-## GET /accounts/{account_number}/orders/live
-`data.items[]` — **shape pending**: empty in the captured run (no working
-orders). Needs a placed (or dry-run) order to capture the order/leg/status shape.
+## GET /accounts/{account_number}/positions
+`data.items[]` — **shape still pending**: empty in all captured runs (dry-run
+does not open a position). Needs an actual fill in the sandbox to capture the
+position leg/quantity/cost fields.

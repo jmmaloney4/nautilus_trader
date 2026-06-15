@@ -444,6 +444,24 @@ impl TastytradeHttpClient {
             .await
     }
 
+    /// Dry-runs an order (`POST /accounts/{account_number}/orders/dry-run`).
+    ///
+    /// Validates the order and returns its buying-power effect, fee calculation,
+    /// and the resolved order structure **without** sending it to any venue.
+    /// Treated as idempotent (it never mutates state) so it is retry-eligible.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails.
+    pub async fn dry_run_order_raw(&self, account_number: &str, order: &Value) -> Result<Value> {
+        self.post(
+            &format!("/accounts/{account_number}/orders/dry-run"),
+            order,
+            true,
+        )
+        .await
+    }
+
     /// Fetches a DXLink quote token (`GET /api-quote-tokens`).
     ///
     /// The response carries the `dxlink-url` and `token` used to open the market

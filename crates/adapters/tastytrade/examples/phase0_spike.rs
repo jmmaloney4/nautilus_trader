@@ -96,6 +96,28 @@ async fn main() -> anyhow::Result<()> {
             &out_dir,
             "live_orders",
         );
+
+        // Dry-run a small limit order to capture the order/buying-power/fee
+        // response shape without placing anything. Priced far from the market
+        // so it is obviously non-marketable; dry-run never reaches a venue.
+        println!("\n[3b] Dry-running a sample order to capture the order shape...");
+        let order = serde_json::json!({
+            "order-type": "Limit",
+            "time-in-force": "Day",
+            "price": "1.00",
+            "price-effect": "Debit",
+            "legs": [{
+                "instrument-type": "Equity",
+                "symbol": "AAPL",
+                "quantity": 1,
+                "action": "Buy to Open"
+            }]
+        });
+        capture(
+            &client.dry_run_order_raw(account, &order).await,
+            &out_dir,
+            "dry_run",
+        );
     } else {
         println!("\n[3] Skipping account-scoped calls (no account number).");
     }
