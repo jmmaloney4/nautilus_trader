@@ -149,6 +149,10 @@ mod tests {
     ) {
         let err = Error::from_http_status(status, b"body");
         assert_eq!(err.is_auth_error(), expect_auth, "auth for {status}");
-        assert_eq!(err.is_retryable(), expect_retryable, "retryable for {status}");
+        assert_eq!(
+            err.is_retryable(),
+            expect_retryable,
+            "retryable for {status}"
+        );
     }
 }

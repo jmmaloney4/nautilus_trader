@@ -17,9 +17,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::common::consts::{
-    REST_URL, REST_URL_SANDBOX, WS_ACCOUNT_URL, WS_ACCOUNT_URL_SANDBOX,
-};
+use crate::common::consts::{REST_URL, REST_URL_SANDBOX, WS_ACCOUNT_URL, WS_ACCOUNT_URL_SANDBOX};
 
 /// The tastytrade API environment.
 ///
@@ -82,15 +80,30 @@ mod tests {
 
     #[rstest]
     fn test_default_is_sandbox() {
-        assert_eq!(TastytradeEnvironment::default(), TastytradeEnvironment::Sandbox);
+        assert_eq!(
+            TastytradeEnvironment::default(),
+            TastytradeEnvironment::Sandbox
+        );
         assert!(TastytradeEnvironment::default().is_sandbox());
     }
 
     #[rstest]
     fn test_urls() {
-        assert!(TastytradeEnvironment::Production.rest_url().starts_with("https://"));
+        assert!(
+            TastytradeEnvironment::Production
+                .rest_url()
+                .starts_with("https://")
+        );
         assert!(TastytradeEnvironment::Sandbox.rest_url().contains("cert"));
-        assert!(TastytradeEnvironment::Production.ws_account_url().starts_with("wss://"));
-        assert!(TastytradeEnvironment::Sandbox.ws_account_url().contains("cert"));
+        assert!(
+            TastytradeEnvironment::Production
+                .ws_account_url()
+                .starts_with("wss://")
+        );
+        assert!(
+            TastytradeEnvironment::Sandbox
+                .ws_account_url()
+                .contains("cert")
+        );
     }
 }

@@ -18,11 +18,12 @@
 //! Exercises the REST surface needed to bootstrap the adapter and captures raw
 //! payloads to disk so the typed mappings can be designed against real data.
 //!
-//! Required environment variables (a local `.env` file is loaded if present):
+//! Credentials (a local `.env` file is loaded if present). Provide EITHER an
+//! OAuth pair OR a session pair; OAuth is preferred when both are present:
 //!
-//! - `TASTYTRADE_PROVIDER_SECRET` — OAuth provider (client) secret.
-//! - `TASTYTRADE_REFRESH_TOKEN`   — OAuth refresh token.
-//! - `TASTYTRADE_ENV`             — `sandbox` (default) or `production`.
+//! - `TASTYTRADE_PROVIDER_SECRET` + `TASTYTRADE_REFRESH_TOKEN` — OAuth.
+//! - `TASTYTRADE_LOGIN` + `TASTYTRADE_PASSWORD` — session login.
+//! - `TASTYTRADE_ENV` — `sandbox` (default) or `production`.
 //!
 //! Run with:
 //!
@@ -34,7 +35,9 @@
 
 use std::path::PathBuf;
 
-use nautilus_tastytrade::{common::enums::TastytradeEnvironment, http::client::TastytradeHttpClient};
+use nautilus_tastytrade::{
+    common::enums::TastytradeEnvironment, http::client::TastytradeHttpClient,
+};
 use serde_json::Value;
 
 #[tokio::main]
@@ -43,7 +46,7 @@ async fn main() -> anyhow::Result<()> {
     let _ = dotenvy::dotenv();
 
     let environment = match std::env::var("TASTYTRADE_ENV").as_deref() {
-        Ok("production") | Ok("prod") => TastytradeEnvironment::Production,
+        Ok("production" | "prod") => TastytradeEnvironment::Production,
         _ => TastytradeEnvironment::Sandbox,
     };
     println!("== tastytrade Phase 0 spike (environment: {environment:?}) ==");
@@ -53,8 +56,8 @@ async fn main() -> anyhow::Result<()> {
 
     let client = TastytradeHttpClient::from_env(environment)?;
 
-    // 1. OAuth: force a refresh to validate the token endpoint.
-    println!("\n[1] Refreshing OAuth access token...");
+    // 1. Authenticate (OAuth refresh or session login) to validate the flow.
+    println!("\n[1] Authenticating...");
     match client.refresh_access_token().await {
         Ok(_) => println!("    OK — access token acquired"),
         Err(e) => {
@@ -78,8 +81,16 @@ async fn main() -> anyhow::Result<()> {
     // 3. Per-account balances / positions / live orders.
     if let Some(account) = account_numbers.first() {
         println!("\n[3] Fetching balances/positions/live-orders for {account}...");
-        capture(&client.get_balances_raw(account).await, &out_dir, "balances");
-        capture(&client.get_positions_raw(account).await, &out_dir, "positions");
+        capture(
+            &client.get_balances_raw(account).await,
+            &out_dir,
+            "balances",
+        );
+        capture(
+            &client.get_positions_raw(account).await,
+            &out_dir,
+            "positions",
+        );
         capture(
             &client.get_live_orders_raw(account).await,
             &out_dir,
@@ -109,9 +120,12 @@ fn capture(
             match serde_json::to_string_pretty(value) {
                 Ok(pretty) => {
                     if let Err(e) = std::fs::write(&path, pretty) {
-                        eprintln!("    [{name}] OK but failed to write {path:?}: {e}");
+                        eprintln!(
+                            "    [{name}] OK but failed to write {}: {e}",
+                            path.display()
+                        );
                     } else {
-                        println!("    [{name}] OK — wrote {path:?}");
+                        println!("    [{name}] OK — wrote {}", path.display());
                     }
                     true
                 }

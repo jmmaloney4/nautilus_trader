@@ -1,0 +1,3 @@
+# Raw payloads captured by the Phase 0 spike (may contain account data).
+phase0_payloads/
+.env

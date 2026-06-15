@@ -46,6 +46,15 @@ pub const WS_ACCOUNT_URL_SANDBOX: &str = "wss://streamer.cert.tastyworks.com";
 /// OAuth token endpoint (relative to the REST base URL).
 pub const OAUTH_TOKEN_PATH: &str = "/oauth/token";
 
+/// Session login endpoint (relative to the REST base URL).
+pub const SESSIONS_PATH: &str = "/sessions";
+
+/// Assumed session-token lifetime, in seconds (~24h). Session responses may
+/// include an explicit `session-expiration`, but we conservatively re-login
+/// against this fixed TTL rather than parsing wall-clock expiry into a
+/// monotonic clock.
+pub const SESSION_TOKEN_TTL_SECS: u64 = 24 * 60 * 60;
+
 /// DXLink quote-token endpoint (relative to the REST base URL).
 pub const API_QUOTE_TOKENS_PATH: &str = "/api-quote-tokens";
 

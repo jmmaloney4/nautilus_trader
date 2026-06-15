@@ -13,7 +13,18 @@
 //  limitations under the License.
 // -------------------------------------------------------------------------------------------------
 
-//! OAuth2 credentials for the tastytrade adapter.
+//! Credentials for the tastytrade adapter.
+//!
+//! tastytrade supports two authentication mechanisms:
+//!
+//! - **OAuth2** (production-preferred): a long-lived `refresh_token` plus the
+//!   application's `provider_secret` are exchanged at `POST /oauth/token` for a
+//!   short-lived (~15 minute) bearer access token.
+//! - **Session** (simple/sandbox): a `login` + `password` are posted to
+//!   `POST /sessions` to obtain a `session-token` (~24h lifetime) used directly
+//!   as the `Authorization` header value (no `Bearer` prefix).
+//!
+//! The short-lived token itself is managed by the HTTP client, not stored here.
 
 use std::fmt::{Debug, Display};
 
@@ -22,91 +33,118 @@ use zeroize::{Zeroize, ZeroizeOnDrop};
 
 use crate::http::error::{Error, Result};
 
-/// Returns the `(provider_secret, refresh_token)` environment variable names.
+/// Returns the `(provider_secret, refresh_token)` OAuth environment variable names.
 #[must_use]
-pub fn credential_env_vars() -> (&'static str, &'static str) {
+pub fn oauth_env_vars() -> (&'static str, &'static str) {
     ("TASTYTRADE_PROVIDER_SECRET", "TASTYTRADE_REFRESH_TOKEN")
 }
 
-/// tastytrade OAuth2 credentials, zeroized on drop.
-///
-/// tastytrade uses an OAuth2 refresh-token grant: the long-lived `refresh_token`
-/// plus the application's `provider_secret` (client secret) are exchanged at
-/// `POST /oauth/token` for a short-lived (~15 minute) access token. The access
-/// token itself is managed by the HTTP client, not stored here.
+/// Returns the `(login, password)` session environment variable names.
+#[must_use]
+pub fn session_env_vars() -> (&'static str, &'static str) {
+    ("TASTYTRADE_LOGIN", "TASTYTRADE_PASSWORD")
+}
+
+/// The HTTP `Authorization` scheme used for a given credential type.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum AuthScheme {
+    /// OAuth2 bearer token: `Authorization: Bearer <token>`.
+    Bearer,
+    /// Session token: `Authorization: <token>` (no scheme prefix).
+    Raw,
+}
+
+/// tastytrade credentials, zeroized on drop.
 #[derive(Clone, Zeroize, ZeroizeOnDrop)]
-pub struct TastytradeCredential {
-    provider_secret: String,
-    refresh_token: String,
+pub enum TastytradeCredential {
+    /// OAuth2 refresh-token grant (production-preferred).
+    OAuth {
+        provider_secret: String,
+        refresh_token: String,
+    },
+    /// Session login (simple; used for sandbox and personal access).
+    Session { login: String, password: String },
 }
 
 impl TastytradeCredential {
-    /// Creates a new [`TastytradeCredential`] instance.
+    /// Creates an OAuth credential.
     #[must_use]
-    pub fn new(provider_secret: String, refresh_token: String) -> Self {
-        Self {
+    pub fn oauth(provider_secret: String, refresh_token: String) -> Self {
+        Self::OAuth {
             provider_secret,
             refresh_token,
         }
     }
 
-    /// Resolves credentials from provided values or [`credential_env_vars`],
-    /// returning `None` when neither yields a complete pair.
+    /// Creates a session credential.
     #[must_use]
-    pub fn resolve(provider_secret: Option<&str>, refresh_token: Option<&str>) -> Option<Self> {
-        let (secret_var, refresh_var) = credential_env_vars();
-        let (secret, refresh) = resolve_env_var_pair(
-            provider_secret
-                .filter(|s| !s.trim().is_empty())
-                .map(String::from),
-            refresh_token
-                .filter(|s| !s.trim().is_empty())
-                .map(String::from),
-            secret_var,
-            refresh_var,
-        )?;
-        Some(Self::new(secret, refresh))
+    pub fn session(login: String, password: String) -> Self {
+        Self::Session { login, password }
+    }
+
+    /// Resolves credentials from the environment, preferring OAuth over session.
+    ///
+    /// Returns `None` when neither a complete OAuth pair nor a complete session
+    /// pair is present.
+    #[must_use]
+    pub fn resolve() -> Option<Self> {
+        let (secret_var, refresh_var) = oauth_env_vars();
+        if let Some((secret, refresh)) = resolve_env_var_pair(None, None, secret_var, refresh_var) {
+            return Some(Self::oauth(secret, refresh));
+        }
+        let (login_var, password_var) = session_env_vars();
+        resolve_env_var_pair(None, None, login_var, password_var)
+            .map(|(login, password)| Self::session(login, password))
     }
 
     /// Loads credentials from environment variables.
     ///
     /// # Errors
     ///
-    /// Returns [`Error::Auth`] if the environment variables are unset or empty.
+    /// Returns [`Error::Auth`] if neither credential pair is fully present.
     pub fn from_env() -> Result<Self> {
-        let (secret_var, refresh_var) = credential_env_vars();
-        Self::resolve(None, None).ok_or_else(|| {
+        let (secret_var, refresh_var) = oauth_env_vars();
+        let (login_var, password_var) = session_env_vars();
+        Self::resolve().ok_or_else(|| {
             Error::auth(format!(
-                "{secret_var} and {refresh_var} environment variables are required"
+                "set either ({secret_var}, {refresh_var}) for OAuth or \
+                 ({login_var}, {password_var}) for session auth"
             ))
         })
     }
 
-    /// Returns the OAuth provider (client) secret.
+    /// Returns the `Authorization` scheme for this credential type.
     #[must_use]
-    pub fn provider_secret(&self) -> &str {
-        &self.provider_secret
+    pub fn auth_scheme(&self) -> AuthScheme {
+        match self {
+            Self::OAuth { .. } => AuthScheme::Bearer,
+            Self::Session { .. } => AuthScheme::Raw,
+        }
     }
 
-    /// Returns the OAuth refresh token.
+    /// Returns `true` if these are OAuth credentials.
     #[must_use]
-    pub fn refresh_token(&self) -> &str {
-        &self.refresh_token
+    pub fn is_oauth(&self) -> bool {
+        matches!(self, Self::OAuth { .. })
     }
 }
 
 impl Debug for TastytradeCredential {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct(stringify!(TastytradeCredential))
-            .field("provider_secret", &"***redacted***")
-            .field("refresh_token", &"***redacted***")
+        let variant = match self {
+            Self::OAuth { .. } => "OAuth",
+            Self::Session { .. } => "Session",
+        };
+        f.debug_struct("TastytradeCredential")
+            .field("kind", &variant)
+            .field("secrets", &"***redacted***")
             .finish()
     }
 }
 
 impl Display for TastytradeCredential {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "TastytradeCredential(***redacted***)")
+        write!(f, "{self:?}")
     }
 }
 
@@ -117,29 +155,36 @@ mod tests {
     use super::*;
 
     #[rstest]
-    fn test_resolve_with_explicit_values() {
-        let cred = TastytradeCredential::resolve(Some("secret"), Some("refresh"))
-            .expect("both explicit values must resolve");
-        assert_eq!(cred.provider_secret(), "secret");
-        assert_eq!(cred.refresh_token(), "refresh");
+    fn test_auth_scheme() {
+        let oauth = TastytradeCredential::oauth("s".into(), "r".into());
+        assert_eq!(oauth.auth_scheme(), AuthScheme::Bearer);
+        assert!(oauth.is_oauth());
+
+        let session = TastytradeCredential::session("u".into(), "p".into());
+        assert_eq!(session.auth_scheme(), AuthScheme::Raw);
+        assert!(!session.is_oauth());
     }
 
     #[rstest]
     fn test_debug_redacts() {
-        // Use sentinel values that are not substrings of the field names, so the
-        // assertion checks that the secret *values* (not labels) are hidden.
-        let cred = TastytradeCredential::new("PSVALUE123".to_string(), "RTVALUE456".to_string());
+        // Sentinel values that are not substrings of variant/field labels.
+        let cred = TastytradeCredential::session("LOGINXYZ".into(), "PASSXYZ".into());
         let debug = format!("{cred:?}");
         assert!(debug.contains("redacted"));
-        assert!(!debug.contains("PSVALUE123"));
-        assert!(!debug.contains("RTVALUE456"));
+        assert!(debug.contains("Session"));
+        assert!(!debug.contains("LOGINXYZ"));
+        assert!(!debug.contains("PASSXYZ"));
     }
 
     #[rstest]
     fn test_env_var_names() {
         assert_eq!(
-            credential_env_vars(),
+            oauth_env_vars(),
             ("TASTYTRADE_PROVIDER_SECRET", "TASTYTRADE_REFRESH_TOKEN"),
+        );
+        assert_eq!(
+            session_env_vars(),
+            ("TASTYTRADE_LOGIN", "TASTYTRADE_PASSWORD"),
         );
     }
 }

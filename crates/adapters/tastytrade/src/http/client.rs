@@ -41,15 +41,19 @@ use crate::{
     common::{
         consts::{
             API_QUOTE_TOKENS_PATH, CUSTOMER_ACCOUNTS_PATH, DEFAULT_HTTP_TIMEOUT_SECS,
-            DEFAULT_REST_QUOTA_PER_SECOND, OAUTH_TOKEN_PATH, TOKEN_REFRESH_BUFFER_SECS,
+            DEFAULT_REST_QUOTA_PER_SECOND, OAUTH_TOKEN_PATH, SESSION_TOKEN_TTL_SECS, SESSIONS_PATH,
+            TOKEN_REFRESH_BUFFER_SECS,
         },
-        credential::TastytradeCredential,
+        credential::{AuthScheme, TastytradeCredential},
         enums::TastytradeEnvironment,
         urls,
     },
     http::{
         error::{Error, Result},
-        models::{AccountsResponse, OAuthTokenResponse},
+        models::{
+            AccountsResponse, OAuthTokenResponse, QuoteTokenData, QuoteTokenResponse,
+            SessionResponse,
+        },
     },
 };
 
@@ -203,7 +207,8 @@ impl TastytradeHttpClient {
         self.refresh_access_token().await
     }
 
-    /// Forces an OAuth access-token refresh via `POST /oauth/token`.
+    /// Forces a token refresh, re-authenticating via the configured mechanism
+    /// (`POST /oauth/token` for OAuth, `POST /sessions` for session auth).
     ///
     /// # Errors
     ///
@@ -223,36 +228,73 @@ impl TastytradeHttpClient {
             return Ok(state.access_token.clone());
         }
 
-        let body = json!({
-            "grant_type": "refresh_token",
-            "refresh_token": credential.refresh_token(),
-            "client_secret": credential.provider_secret(),
-        });
-        let body_bytes = serde_json::to_vec(&body).map_err(Error::Serde)?;
-        let url = self.build_url(OAUTH_TOKEN_PATH);
+        let (token, ttl) = match credential {
+            TastytradeCredential::OAuth {
+                provider_secret,
+                refresh_token,
+            } => {
+                let body = json!({
+                    "grant_type": "refresh_token",
+                    "refresh_token": refresh_token,
+                    "client_secret": provider_secret,
+                });
+                let body_bytes = serde_json::to_vec(&body).map_err(Error::Serde)?;
+                let url = self.build_url(OAUTH_TOKEN_PATH);
+                let value = self
+                    .send(
+                        Method::POST,
+                        url,
+                        Self::default_headers(),
+                        Some(body_bytes),
+                        true,
+                    )
+                    .await?;
+                let resp: OAuthTokenResponse =
+                    serde_json::from_value(value).map_err(Error::Serde)?;
+                (resp.access_token, Duration::from_secs(resp.expires_in))
+            }
+            TastytradeCredential::Session { login, password } => {
+                let body = json!({ "login": login, "password": password });
+                let body_bytes = serde_json::to_vec(&body).map_err(Error::Serde)?;
+                let url = self.build_url(SESSIONS_PATH);
+                let value = self
+                    .send(
+                        Method::POST,
+                        url,
+                        Self::default_headers(),
+                        Some(body_bytes),
+                        true,
+                    )
+                    .await?;
+                let resp: SessionResponse = serde_json::from_value(value).map_err(Error::Serde)?;
+                (
+                    resp.data.session_token,
+                    Duration::from_secs(SESSION_TOKEN_TTL_SECS),
+                )
+            }
+        };
 
-        let value = self
-            .send(Method::POST, url, Self::default_headers(), Some(body_bytes), true)
-            .await?;
-        let resp: OAuthTokenResponse = serde_json::from_value(value).map_err(Error::Serde)?;
-
-        let expires_at = Instant::now() + Duration::from_secs(resp.expires_in);
         self.access_token.store(Some(Arc::new(TokenState {
-            access_token: resp.access_token.clone(),
-            expires_at,
+            access_token: token.clone(),
+            expires_at: Instant::now() + ttl,
         })));
-        log::debug!(
-            "Refreshed tastytrade access token (expires_in={}s)",
-            resp.expires_in
-        );
-        Ok(resp.access_token)
+        log::debug!("Refreshed tastytrade token (ttl={}s)", ttl.as_secs());
+        Ok(token)
     }
 
     fn authed_headers(&self, token: &str) -> HashMap<String, String> {
         let mut headers = Self::default_headers();
-        // OAuth2 bearer auth. (tastytrade session-token auth uses a bare token;
-        // OAuth access tokens use the `Bearer` scheme.)
-        headers.insert("Authorization".to_string(), format!("Bearer {token}"));
+        // OAuth access tokens use the `Bearer` scheme; session tokens are sent
+        // as the bare `Authorization` value.
+        let scheme = self
+            .credential
+            .as_ref()
+            .map_or(AuthScheme::Bearer, TastytradeCredential::auth_scheme);
+        let value = match scheme {
+            AuthScheme::Bearer => format!("Bearer {token}"),
+            AuthScheme::Raw => token.to_string(),
+        };
+        headers.insert("Authorization".to_string(), value);
         if let Some(version) = &self.accept_version {
             headers.insert("Accept-Version".to_string(), version.clone());
         }
@@ -378,7 +420,8 @@ impl TastytradeHttpClient {
     ///
     /// Returns an error if the request fails.
     pub async fn get_balances_raw(&self, account_number: &str) -> Result<Value> {
-        self.get(&format!("/accounts/{account_number}/balances")).await
+        self.get(&format!("/accounts/{account_number}/balances"))
+            .await
     }
 
     /// Fetches account positions (`GET /accounts/{account_number}/positions`).
@@ -412,5 +455,16 @@ impl TastytradeHttpClient {
     /// funded, registered account and is unavailable for some sandbox setups.
     pub async fn get_quote_token_raw(&self) -> Result<Value> {
         self.get(API_QUOTE_TOKENS_PATH).await
+    }
+
+    /// Fetches and decodes a DXLink quote token (`GET /api-quote-tokens`).
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the request fails or the response cannot be decoded.
+    pub async fn get_quote_token(&self) -> Result<QuoteTokenData> {
+        let value = self.get_quote_token_raw().await?;
+        let resp: QuoteTokenResponse = serde_json::from_value(value).map_err(Error::Serde)?;
+        Ok(resp.data)
     }
 }
